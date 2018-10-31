@@ -1,0 +1,43 @@
+package db
+
+import (
+	"common"
+	_ "fmt"
+	"strings"
+)
+
+const (
+	InnodbName = "innodb"
+)
+
+var innodb *common.NodeItem
+var stmtStatus string = "SHOW /*!50000 ENGINE */ INNODB STATUS"
+
+func InnodbStatus(key *common.Key, ci *ConInfo) (*common.NodeItem, error) {
+	con, err := connection(ci)
+	if key == nil || err != nil {
+		return nil, err
+	}
+	if innodb == nil {
+		innodb = &common.NodeItem{Name: Name, Tag: make(map[string]interface{})}
+	}
+	rows, _, err := con.Query(stmtStatus)
+	if err != nil {
+		return nil, err
+	}
+	var status string
+	for _, row := range rows {
+		status = row.Str(2)
+	}
+	ikey := key.V[InnodbName]
+	for _, v := range ikey {
+		switch {
+		case strings.Compare(v, "status") == 0:
+			innodb.Tag[v] = status
+			break
+		default:
+			break
+		}
+	}
+	return innodb, nil
+}

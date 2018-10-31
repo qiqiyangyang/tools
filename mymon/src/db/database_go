@@ -1,0 +1,47 @@
+package db
+
+/*
+* Init Mysql Connection
+ */
+import (
+	"database/sql"
+	"fmt"
+	"github.com/go-ini/ini"
+	_ "github.com/go-sql-driver/mysql"
+)
+
+type Connection struct {
+	g_connection *sql.DB
+}
+
+func DBUrl(sec *ini.Section) string {
+	url := sec.Key("user").String() + ":" + sec.Key("password").String() + "@tcp(" + sec.Key("host").String() + ":" + sec.Key("port").String() + ")/information_schema?charset=utf8&parseTime=True&loc=Local"
+	fmt.Println(url)
+	return url
+}
+func NewConnection(sec *ini.Section) (*Connection, error) {
+	url := DBUrl(sec)
+	con := &Connection{}
+	db, err := sql.Open("mysql", url)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		return nil, err
+	}
+	con.g_connection = db
+	return con, nil
+}
+func (c *Connection) Close() {
+	if c.g_connection != nil {
+		c.g_connection.Close()
+	}
+}
+func (c *Connection) Select(exec_sql string, args ...interface{}) (*sql.Rows, error) {
+	st, err := c.g_connection.Prepare(exec_sql)
+	if err != nil {
+		return nil, err
+	}
+	defer st.Close()
+	return st.Query(args...)
+}

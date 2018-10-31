@@ -1,0 +1,131 @@
+```
+-----------------------------------------------[host]-----------------------------------------------
+host.name                                         |debian
+os.info                                           |linux,3.16.0-4-amd64
+host.ip                                           |192.168.74.129,192.168.243.128,172.17.0.1,172.18.0.1
+uptime                                            |198878
+-----------------------------------------------[cpu]-----------------------------------------------
+cpu.version                                       |Intel(R) Core(TM) i5-7400 CPU @ 3.00GHz
+cpu.physical.nums                                 |1
+cpu.physical.per.cores                            |1
+cpu0                                              |3000.06
+cpu.total.cores                                   |1
+cpu-total.user                                    |1842.55
+cpu-total.system                                  |373.54
+cpu-total.idle                                    |194516.26
+cpu-total.nice                                    |0
+cpu-total.iowait                                  |27.24
+cpu-total.steal                                   |0
+-----------------------------------------------[memory]-----------------------------------------------
+mem.total                                         |2003mb
+mem.used                                          |935mb
+mem.available                                     |1068mb
+mem.used_pct                                      |46.7%
+mem.free                                          |181mb
+mem.buffers                                       |100mb
+mem.cached                                        |852mb
+swap.total                                        |1023mb
+swap.used                                         |0mb
+swap.free                                         |1023mb
+swap.used_pct                                     |0.0%
+swap.sin                                          |163840
+swap.sout                                         |438272
+-----------------------------------------------[workloader]-----------------------------------------------
+load.1                                            |0.01
+load.5                                            |0.02
+load.15                                           |0
+procs.running                                     |3
+procs.blocked                                     |0
+-----------------------------------------------[disk]-----------------------------------------------
+dm-0.total                                        |mount:/,size:23817mb
+dm-0.free                                         |mount:/,size:7168mb
+dm-0.used                                         |mount:/,size:15416mb
+sda1.total                                        |mount:/boot,size:235mb
+sda1.free                                         |mount:/boot,size:189mb
+sda1.used                                         |mount:/boot,size:33mb
+dm-0.total                                        |mount:/var/lib/docker/aufs,size:23817mb
+dm-0.free                                         |mount:/var/lib/docker/aufs,size:7168mb
+dm-0.used                                         |mount:/var/lib/docker/aufs,size:15416mb
+-----------------------------------------------[process]-----------------------------------------------
+err                                               |process not running,check process pid
+-----------------------------------------------[oom]-----------------------------------------------
+err                                               |open /var/log/messages: permission denied
+-----------------------------------------------[network]-----------------------------------------------
+lo.mtu                                            |65536
+lo.macaddr                                        |
+eth0.mtu                                          |1500
+eth0.macaddr                                      |00:0c:29:d5:0f:fb
+eth1.mtu                                          |1500
+eth1.macaddr                                      |00:0c:29:d5:0f:05
+docker0.mtu                                       |1500
+docker0.macaddr                                   |02:42:d2:ed:d1:07
+docker_gwbridge.mtu                               |1500
+docker_gwbridge.macaddr                           |02:42:3e:49:76:dc
+veth4bf0b2d.mtu                                   |1500
+veth4bf0b2d.macaddr                               |a2:b9:24:69:fd:ce
+all.send_kb.size                                  |2962098kb
+all.recv_kb.size                                  |902985kb
+all.send_package.count                            |1492457
+all.recv_package_count                            |891535
+all.send_errors_count                             |0
+all.recv_errors_count                             |0
+-----------------------------------------------[mysql]-----------------------------------------------
+binlog_cache_size                                 |0.03 MB
+innodb_buffer_pool_instances                      |1
+innodb_buffer_pool_size                           |0.12 GB
+innodb_file_per_table                             |on
+innodb_flush_log_at_trx_commit                    |1
+innodb_io_capacity                                |200
+innodb_log_files_in_group                         |2
+innodb_log_file_size                              |48.00 MB
+innodb_read_io_threads                            |4
+innodb_write_io_threads                           |4
+join_buffer_size                                  |0.25 MB
+key_buffer_size                                   |8.00 MB
+max_allowed_packet                                |4.00 MB
+max_connections                                   |151
+max_heap_table_size                               |16.00 MB
+read_buffer_size                                  |0.12 MB
+read_rnd_buffer_size                              |0.25 MB
+sort_buffer_size                                  |0.25 MB
+thread_stack                                      |0.25 MB
+version                                           |5.7.18-debug-log
+
+//global status
+
+qps                                               |0
+tps                                               |0
+select                                            |0
+update                                            |0
+delete                                            |0
+insert                                            |0
+read_times                                        |0
+write_times                                       |0
+read_page_from_bp                                 |9926 request
+read_page_from_disk                               |0 request
+buffer_pool_size                                  |0.12 GB
+buffer_pool_usage                                 |4.19 %
+threads_create                                    |2
+threads_connected                                 |1
+threads_running                                   |1
+threads_cache                                     |0
+connection_errors_max_connections                 |0
+connection_errors_internal                        |0
+binlog_cache_disk_use                             |0
+create_tmp_disk_tables                            |367
+slow_queries                                      |0
+aborted_connects                                  |0
+innodb_row_lock_current_waits                     |0
+innodb_row_lock_time                              |0
+innodb_row_lock_time_avg                          |0
+innodb_row_lock_time_max                          |0
+innodb_row_lock_waits                             |0
+uptime                                            |6h
+
+//total size of all databases
+database_size_GB                                  |0.002343GB (update time:2017-08-05 06:22:12)
+
+
+//top 20 table size of all database
+amfin.tb1                                         |0.02 MB
+```
