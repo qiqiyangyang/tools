@@ -10,16 +10,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <ctype.h>
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
 #include <assert.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #define STD_BACKLOG (1024)
-#define STD_BLOCK_LEN (4096)
+#define STD_BLOCK_LEN (1 * 1024 * 1024)
 static void rand_str(char *buf, size_t len)
 {
   const char o[] = "0123456789ABCDEF";
@@ -29,24 +32,64 @@ static void rand_str(char *buf, size_t len)
     buf[i] = o[(olen + rand()) % olen];
   }
 }
+static bool str_is_int(char *s)
+{
+  while (*s != '\0')
+  {
+    if (!isdigit(*s))
+    {
+      return false;
+    }
+    s++;
+  }
+  return true;
+}
+static uint64_t uint_convert(char *s, bool flag)
+{
+  size_t len = strlen(s);
+  char buf[66] = {'\0'};
+  char *save_ptr;
+  uint64_t block_bytes = 0;
+  uint64_t ut = strtoul(s, &save_ptr, 10);
+  strncpy((char *)&buf, s, len - 2);
+  if (str_is_int((char *)&buf))
+  {
+    if (strncmp(save_ptr, "kb", 2) == 0)
+    {
+      block_bytes = ut * 1024;
+    }
+    else if (strncmp(save_ptr, "mb", 2) == 0)
+    {
+      block_bytes = ut * 1024 * 1024;
+    }
+    else if (flag && strncmp(save_ptr, "gb", 2) == 0)
+    {
+      block_bytes = ut * 1024 * 1024 * 1024;
+    }
+  }
+  return block_bytes;
+}
 int usage(const char *s)
 {
-  fprintf(stdout, "\nusage: %s {host} {port} {count} {total_mb_size}\n",s);
-  fprintf(stdout, "        --port          server port\n");
-  fprintf(stdout, "        --count         times for sending data to server\n");
-  fprintf(stdout, "        --total_mb_size total mb size\n");
+  fprintf(stdout, "\nusage: %s {host} {port} {count} {total_mb_size} {option_block_size}\n", s);
+  fprintf(stdout, "        --port              server port\n");
+  fprintf(stdout, "        --count             times for sending data to server\n");
+  fprintf(stdout, "        --total_mb_size     total mb size(kb|mb)\n");
+  fprintf(stdout, "        --option_block_size block size(kb|mb}\n");
+   fprintf(stdout, "example:%s  127.0.0.1 6789 10  3gb  2mb\n",s);
   return -1;
 }
 int main(int argc, char *argv[])
 {
-  if (argc ==2 && strncmp(argv[1],"-h",2) ==0)
+  if (argc == 2 && strncmp(argv[1], "-h", 2) == 0)
   {
     return usage(argv[0]);
   }
   char *host = "127.0.0.1";
   int port = 6789;
   uint64_t count = 1;
-  uint64_t total_mb = 1;
+  uint64_t block_bytes = STD_BLOCK_LEN;
+  uint64_t bytes = 0;
   if (argv[1] != NULL)
   {
     host = argv[1];
@@ -59,14 +102,26 @@ int main(int argc, char *argv[])
   {
     count = atoi(argv[3]);
   }
-  if(argv[4]  !=NULL) {
-    total_mb =  atoi(argv[4]);
+  if (argv[4] != NULL)
+  {
+    bytes = uint_convert(argv[4], true);
+    if (bytes == 0)
+    {
+      bytes = STD_BLOCK_LEN * 10;
+    }
   }
-  uint64_t bytes = total_mb * 1024 * 1024;
+  if (argv[5] != NULL)
+  {
+    block_bytes = uint_convert(argv[5], false);
+    if (block_bytes == 0)
+    {
+      block_bytes = STD_BLOCK_LEN;
+    }
+  }
   int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (sock == -1)
   {
-    fprintf(stdout,"socket error: %s(errno: %d)\n", strerror(errno), errno);
+    fprintf(stdout, "socket error: %s(errno: %d)\n", strerror(errno), errno);
     return -1;
   }
 
@@ -77,13 +132,14 @@ int main(int argc, char *argv[])
   addr.sin_port = htons(port);
 
   session_msg sm;
-  sm.number = bytes / STD_BLOCK_LEN;
-  sm.length = STD_BLOCK_LEN;
+  sm.number = bytes / block_bytes;
+  sm.length = block_bytes;
   sm.count = count;
+  fprintf(stdout, "-------bytes=%d,block_bytes=%d\n", bytes, block_bytes);
   if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
   {
     close(sock);
-    fprintf(stdout,"connect error: %s(errno: %d)\n", strerror(errno), errno);
+    fprintf(stdout, "connect error: %s(errno: %d)\n", strerror(errno), errno);
     return -1;
   }
 

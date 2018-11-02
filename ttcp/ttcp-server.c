@@ -103,8 +103,9 @@ void handle_connection(void *arg)
   assert(read_len == sizeof(req->sm));
 
   char result[2048] = {'\0'};
-  sprintf((char *)&result, "    thread %ld for connection,session:{count=%d,number=%d,packet length=%d},", pthread_self(), req->sm.count, req->sm.number, req->sm.length);
-  fprintf(stdout, " **new connection %s ,session:{count=%d,number=%d,packet length=%d}, runing in %ld thread,handing by sub-thread %ld\n", client_ip, req->sm.count, req->sm.number, req->sm.length, req->parent_id, pthread_self());
+  double pkg_size = (double)req->sm.length / 1024 / 1024;
+  sprintf((char *)&result, "    thread %ld for connection,session:{count=%d,number=%d,packet length=%.4fMib},", pthread_self(), req->sm.count, req->sm.number, pkg_size);
+  fprintf(stdout, " **new connection %s ,session:{count=%d,number=%d,packet length=%.4fMib}, runing in %ld thread,handing by sub-thread %ld\n", client_ip, req->sm.count, req->sm.number, pkg_size, req->parent_id, pthread_self());
 
   size_t ac_size = sizeof(payload_msg) + req->sm.length;
   payload_msg *pm = (payload_msg *)calloc(1, ac_size);
@@ -170,12 +171,13 @@ void handle_accept_request(void *arg)
       req = request_create(cfd);
       req->parent_id = pthread_self();
       pthread_mutex_lock(&lock);
-      if(dict_add(map, &req->cfd, req, 0)!=0) {
-            fprintf(stdout,"dict error: add %p into dict failed\n", req);
-            free(req);
-            req = NULL;
-            pthread_mutex_unlock(&lock);
-            break;
+      if (dict_add(map, &req->cfd, req, 0) != 0)
+      {
+        fprintf(stdout, "dict error: add %p into dict failed\n", req);
+        free(req);
+        req = NULL;
+        pthread_mutex_unlock(&lock);
+        break;
       }
       pthread_mutex_unlock(&lock);
       pthread_create(&req->id, NULL, (void *)&handle_connection, (void *)req);
@@ -185,11 +187,12 @@ void handle_accept_request(void *arg)
 
 int main(int argc, char *argv[])
 {
-  if (argc ==2 && strncmp(argv[1], "-h", 2) == 0)
+  if (argc == 2 && strncmp(argv[1], "-h", 2) == 0)
   {
     fprintf(stdout, "\nusage:%s {port} {thread_count}\n", argv[0]);
     fprintf(stdout, "          --port           listen port for server\n");
     fprintf(stdout, "          --thread_count   thread for worker size\n");
+    fprintf(stdout, "example:%s 6789 4   \n",argv[0]);
     return -1;
   }
   int port = (NULL == argv[1]) ? 6789 : atoi(argv[1]);
@@ -212,7 +215,7 @@ int main(int argc, char *argv[])
     map->key_len = &client_len;
     map->key_destroy = map->val_destroy = &free;
   }
-  fprintf(stdout,"|************perrynzhou@gmail.com****************|\n");
+  fprintf(stdout, "|************perrynzhou@gmail.com****************|\n");
   pthread_t thds[thd_size];
   fprintf(stdout, "|--------- start ttcp server running at %d------------\n", port);
   for (int i = 0; i < thd_size; i++)
