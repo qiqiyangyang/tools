@@ -10,12 +10,13 @@
 #include <stdio.h>
 #include <stdint.h>
 typedef struct session_msg {
-  int32_t number;
-  int32_t length;
+  uint64_t count;
+  uint64_t number;
+  uint64_t length;
 }__attribute__((packed)) session_msg;
 
 typedef struct payload_msg {
-  int32_t length;
+  uint64_t length;
   char data[0];
 }payload_msg;
 

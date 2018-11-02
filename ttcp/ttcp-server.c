@@ -19,9 +19,8 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#define BACKLOG (1024)
+#define STD_BACKLOG (1024)
 #define MAX_BUCKET_SIZE (16383)
-#define PARENT_THREAD_BUF_SIZE (64)
 static pthread_mutex_t lock;
 static dict *map;
 
@@ -75,7 +74,7 @@ static int init_socket(int port)
     printf("bind  error: %s(errno: %d)\n", strerror(errno), errno);
     return -1;
   }
-  if (listen(sock, BACKLOG) < 0)
+  if (listen(sock, STD_BACKLOG) < 0)
   {
     printf("listen error: %s(errno: %d)\n", strerror(errno), errno);
     return -1;
@@ -91,11 +90,10 @@ static int init_socket(int port)
 void handle_connection(void *arg)
 {
 
-
   clock_t start = clock();
   clock_t finish;
   request *req = (request *)arg;
-  
+
   // got client ip address
   char client_ip[128] = {'\0'};
   get_sock_info(req->cfd, (char *)&client_ip);
@@ -103,38 +101,47 @@ void handle_connection(void *arg)
   int read_len = read_n(req->cfd, &req->sm, sizeof(session_msg));
   int write_len = 0;
   assert(read_len == sizeof(req->sm));
-  char result[2048] = {'\0'};
- 
 
-  sprintf((char *)&result, "    connection %ld ,session info:{number=%d,packet length=%d},", pthread_self(),req->sm.number, req->sm.length);
-  fprintf(stdout," **new connection [%s] runing within worker %ld thread,handing by sub-thread %ld\n",client_ip,req->parent_id,pthread_self());
+  char result[2048] = {'\0'};
+  sprintf((char *)&result, "    thread %ld for connection,session:{count=%d,number=%d,packet length=%d},", pthread_self(), req->sm.count, req->sm.number, req->sm.length);
+  fprintf(stdout, " **new connection %s ,session:{count=%d,number=%d,packet length=%d}, runing in %ld thread,handing by sub-thread %ld\n", client_ip, req->sm.count, req->sm.number, req->sm.length, req->parent_id, pthread_self());
 
   size_t ac_size = sizeof(payload_msg) + req->sm.length;
   payload_msg *pm = (payload_msg *)calloc(1, ac_size);
-  for (int i = 0; i < req->sm.number; i++)
+  assert(pm != NULL);
+  pm->length = req->sm.length;
+
+  for (int j = 0; j < req->sm.count; j++)
   {
-    if(read_n(req->cfd, &pm->length, sizeof(pm->length))!=sizeof(pm->length))
+    for (int i = 0; i < req->sm.number; i++)
     {
-      perror("read");
-      break;
-    }
-    assert(pm->length == req->sm.length);
-    //read data
-    if(read_n(req->cfd,(char *)pm->data,pm->length) != pm->length) {
+      if (read_n(req->cfd, &pm->length, sizeof(pm->length)) !=
+          sizeof(pm->length))
+      {
         perror("read");
         break;
-    } 
-    uint32_t ack = htonl(pm->length);
-     if(write_n(req->cfd, &ack, sizeof(int))!=sizeof(uint32_t)) {
-       perror("write");
-       break;
-     }
+      }
+      assert(pm->length == req->sm.length);
+      // read data
+      if (read_n(req->cfd, (char *)pm->data, pm->length) != pm->length)
+      {
+        perror("read");
+        break;
+      }
+      uint32_t ack = htonl(pm->length);
+      if (write_n(req->cfd, &ack, sizeof(int)) != sizeof(uint32_t))
+      {
+        perror("write");
+        break;
+      }
+    }
   }
   finish = clock();
-  double elapsed = (double)(finish - start)/CLOCKS_PER_SEC;
-  double total = (double)(req->sm.length*req->sm.number)/1024/1024;
- 
-  fprintf(stdout, "%s recieve %.3f Mib from  %s, network bandwidth:%.3f MiB/s  \n", result,client_ip,total,total/elapsed);
+  double elapsed = (double)(finish - start) / CLOCKS_PER_SEC;
+  double total =
+      (double)((req->sm.length * req->sm.number) / 1024 / 1024) * req->sm.count;
+
+  fprintf(stdout, "%s recieve %.3f Mib from  %s, network bandwidth:%.3f MiB/s  \n", result, client_ip, total, total / elapsed);
 
   if (pm != NULL)
   {
@@ -149,7 +156,7 @@ void handle_connection(void *arg)
 void handle_accept_request(void *arg)
 {
   int *sock = (int *)arg;
-  fprintf(stdout, "******start worker thread %ld for accpet connection\n", pthread_self());
+  fprintf(stdout, "|######### start worker thread %ld for accpet connection\n", pthread_self());
   while (1)
   {
     int cfd = accept(*sock, (struct sockaddr *)NULL, NULL);
@@ -163,19 +170,26 @@ void handle_accept_request(void *arg)
       req = request_create(cfd);
       req->parent_id = pthread_self();
       pthread_mutex_lock(&lock);
-      dict_add(map, &req->cfd, req, 0);
+      if(dict_add(map, &req->cfd, req, 0)!=0) {
+            fprintf(stdout,"dict error: add %p into dict failed\n", req);
+            free(req);
+            req = NULL;
+            pthread_mutex_unlock(&lock);
+            break;
+      }
       pthread_mutex_unlock(&lock);
       pthread_create(&req->id, NULL, (void *)&handle_connection, (void *)req);
-      //pthread_join(req->id,NULL);
     }
   }
 }
 
 int main(int argc, char *argv[])
 {
-  if (argv[1] != NULL && strncmp(argv[1], "-h", 2) == 0)
+  if (argc ==2 && strncmp(argv[1], "-h", 2) == 0)
   {
     fprintf(stdout, "\nusage:%s {port} {thread_count}\n", argv[0]);
+    fprintf(stdout, "          --port           listen port for server\n");
+    fprintf(stdout, "          --thread_count   thread for worker size\n");
     return -1;
   }
   int port = (NULL == argv[1]) ? 6789 : atoi(argv[1]);
@@ -198,9 +212,9 @@ int main(int argc, char *argv[])
     map->key_len = &client_len;
     map->key_destroy = map->val_destroy = &free;
   }
-  fprintf(stdout,"/************author:perrynzhou@gmail.com****************/\n");
+  fprintf(stdout,"|************perrynzhou@gmail.com****************|\n");
   pthread_t thds[thd_size];
-  fprintf(stdout, "------- start ttcp server running at %d------\n", port);
+  fprintf(stdout, "|--------- start ttcp server running at %d------------\n", port);
   for (int i = 0; i < thd_size; i++)
   {
     pthread_create(&thds[i], NULL, (void *)&handle_accept_request,
