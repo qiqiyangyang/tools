@@ -19,6 +19,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #define STD_BACKLOG (1024)
@@ -76,7 +77,7 @@ int usage(const char *s)
   fprintf(stdout, "        --count             times for sending data to server\n");
   fprintf(stdout, "        --total_mb_size     total mb size(kb|mb)\n");
   fprintf(stdout, "        --option_block_size block size(kb|mb}\n");
-   fprintf(stdout, "example:%s  127.0.0.1 6789 10  3gb  2mb\n",s);
+  fprintf(stdout, "example:%s  127.0.0.1 6789 10  3gb  2mb\n", s);
   return -1;
 }
 int main(int argc, char *argv[])
@@ -135,7 +136,6 @@ int main(int argc, char *argv[])
   sm.number = bytes / block_bytes;
   sm.length = block_bytes;
   sm.count = count;
-  fprintf(stdout, "-------bytes=%d,block_bytes=%d\n", bytes, block_bytes);
   if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1)
   {
     close(sock);
@@ -171,7 +171,11 @@ int main(int argc, char *argv[])
     double total = ((sizeof(char) * pm->length * sm.number) / 1024 / 1024) * sm.count;
     char buf[1024] = {'\0'};
     sprintf((char *)&buf, " |****client write %.3f Mib to server[%s],", total, server_ip);
-    clock_t start = clock();
+    struct timeval start;
+struct timeval finish;
+gettimeofday(&start,NULL);
+
+    //clock_t start = clock();
     for (int j = 0; j < sm.count; j++)
     {
       for (int i = 0; i < sm.number; i++)
@@ -185,8 +189,8 @@ int main(int argc, char *argv[])
         assert(ack == sm.length);
       }
     }
-    clock_t finish = clock();
-    double elapsed = (double)(finish - start) / CLOCKS_PER_SEC;
+    gettimeofday(&finish,NULL);    
+    double elapsed = (double)((finish.tv_sec-start.tv_sec)*1000000+(finish.tv_usec-start.tv_usec))/1000000;
     fprintf(stdout, "%s elapsed: %.3f seconds,network bandwidth :%.3f MiB/s\n", buf, elapsed, bytes / 1024 / 1024 / elapsed);
     if (pm != NULL)
     {

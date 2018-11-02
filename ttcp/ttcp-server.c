@@ -13,12 +13,13 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <unistd.h>
+#include <sys/time.h>
 #define STD_BACKLOG (1024)
 #define MAX_BUCKET_SIZE (16383)
 static pthread_mutex_t lock;
@@ -90,8 +91,9 @@ static int init_socket(int port)
 void handle_connection(void *arg)
 {
 
-  clock_t start = clock();
-  clock_t finish;
+  struct timeval start;
+  struct timeval finish;
+  gettimeofday(&start, NULL);
   request *req = (request *)arg;
 
   // got client ip address
@@ -104,7 +106,7 @@ void handle_connection(void *arg)
 
   char result[2048] = {'\0'};
   double pkg_size = (double)req->sm.length / 1024 / 1024;
-  sprintf((char *)&result, "    thread %ld for connection,session:{count=%d,number=%d,packet length=%.4fMib},", pthread_self(), req->sm.count, req->sm.number, pkg_size);
+  double total = (req->sm.length * req->sm.number * req->sm.count) / 1024 / 1024;
   fprintf(stdout, " **new connection %s ,session:{count=%d,number=%d,packet length=%.4fMib}, runing in %ld thread,handing by sub-thread %ld\n", client_ip, req->sm.count, req->sm.number, pkg_size, req->parent_id, pthread_self());
 
   size_t ac_size = sizeof(payload_msg) + req->sm.length;
@@ -137,12 +139,9 @@ void handle_connection(void *arg)
       }
     }
   }
-  finish = clock();
-  double elapsed = (double)(finish - start) / CLOCKS_PER_SEC;
-  double total =
-      (double)((req->sm.length * req->sm.number) / 1024 / 1024) * req->sm.count;
-
-  fprintf(stdout, "%s recieve %.3f Mib from  %s, network bandwidth:%.3f MiB/s  \n", result, client_ip, total, total / elapsed);
+  gettimeofday(&finish, NULL);
+  double elapsed = (double)((finish.tv_sec - start.tv_sec) * 1000000 + (finish.tv_usec - start.tv_usec)) / 1000000;
+  fprintf(stdout, "    **thread %ld elapsed:%.3f seconds,recieve %.3f Mib from %s, network-bandwidth:%.3f MiB/s\n\n", pthread_self(), elapsed, total, client_ip, total / elapsed);
 
   if (pm != NULL)
   {
@@ -192,7 +191,7 @@ int main(int argc, char *argv[])
     fprintf(stdout, "\nusage:%s {port} {thread_count}\n", argv[0]);
     fprintf(stdout, "          --port           listen port for server\n");
     fprintf(stdout, "          --thread_count   thread for worker size\n");
-    fprintf(stdout, "example:%s 6789 4   \n",argv[0]);
+    fprintf(stdout, "example:%s 6789 4   \n", argv[0]);
     return -1;
   }
   int port = (NULL == argv[1]) ? 6789 : atoi(argv[1]);
@@ -215,9 +214,9 @@ int main(int argc, char *argv[])
     map->key_len = &client_len;
     map->key_destroy = map->val_destroy = &free;
   }
-  fprintf(stdout, "|************perrynzhou@gmail.com****************|\n");
+  fprintf(stdout, "|************perrynzhou@gmail.com****************|\n\n");
   pthread_t thds[thd_size];
-  fprintf(stdout, "|--------- start ttcp server running at %d------------\n", port);
+  fprintf(stdout, "|************start ttcp server running at %s:%d************|\n", "127.0.0.1", port);
   for (int i = 0; i < thd_size; i++)
   {
     pthread_create(&thds[i], NULL, (void *)&handle_accept_request,
@@ -232,5 +231,5 @@ int main(int argc, char *argv[])
     close(sock);
   }
   dict_destroy(map);
-  fprintf(stdout, "::server stop at %d::\n", port);
+  fprintf(stdout, "|************sserver stop at %d************|\n", port);
 }
