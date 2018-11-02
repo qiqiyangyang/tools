@@ -19,7 +19,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #define STD_BACKLOG (1024)
-#define STD_BLOCK_LEN (1024)
+#define STD_BLOCK_LEN (4096)
 static void rand_str(char *buf, size_t len)
 {
   const char o[] = "0123456789ABCDEF";
