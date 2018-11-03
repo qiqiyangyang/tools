@@ -1,10 +1,11 @@
 /*************************************************************************
-  > File Name: ttcp.c
+  > File Name: ttcp-common.c
   > Author:perrynzhou
   > Mail:perrynzhou@gmail.com
   > Created Time: 三 10/31 12:58:14 2018
  ************************************************************************/
 
+#include "ttcp-common.h"
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>

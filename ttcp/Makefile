@@ -1,4 +1,4 @@
 all:
-	rm -rf ttcp_server ttcp_client
-	gcc -std=c99 -g dict.h dict.c ttcp.h ttcp.c ttcp-server.c  -lpthread -o  ttcp_server
-	gcc -std=c99 -g ttcp.h ttcp.c ttcp-client.c -o ttcp_client
+	rm -rf ttcp_network_server ttcp_network_client
+	gcc -std=c99 -g dict.h dict.c ttcp-common.h ttcp-common.c ttcp-network-server.c  -lpthread -o  ttcp_network_server
+	gcc -std=c99 -g ttcp-common.h ttcp-common.c ttcp-network-client.c -o ttcp_network_client

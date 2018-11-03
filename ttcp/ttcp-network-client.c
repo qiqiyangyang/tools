@@ -5,7 +5,7 @@
   > Created Time: 三 10/31 10:14:59 2018
  ************************************************************************/
 
-#include "ttcp.h"
+#include "ttcp-common.h"
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>

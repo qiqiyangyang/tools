@@ -6,7 +6,7 @@
  ************************************************************************/
 
 #include "dict.h"
-#include "ttcp.h"
+#include "ttcp-common.h"
 #include <assert.h>
 #include <errno.h>
 #include <netinet/in.h>
