@@ -55,15 +55,15 @@ static uint64_t uint_convert(char *s, bool flag)
   strncpy((char *)&buf, s, len - 2);
   if (str_is_int((char *)&buf))
   {
-    if (strncmp(save_ptr, "kb", 2) == 0)
+    if (strncmp(save_ptr, "kb", 2) == 0 || strncmp(save_ptr, "k", 1) == 0)
     {
       block_bytes = ut * 1024;
     }
-    else if (strncmp(save_ptr, "mb", 2) == 0)
+    else if (strncmp(save_ptr, "mb", 2) == 0 || strncmp(save_ptr, "m", 1) == 0)
     {
       block_bytes = ut * 1024 * 1024;
     }
-    else if (flag && strncmp(save_ptr, "gb", 2) == 0)
+    else if (flag && strncmp(save_ptr, "gb", 2) == 0 || strncmp(save_ptr, "g", 1) == 0)
     {
       block_bytes = ut * 1024 * 1024 * 1024;
     }
@@ -75,8 +75,8 @@ int usage(const char *s)
   fprintf(stdout, "\nusage: %s {host} {port} {count} {total_mb_size} {option_block_size}\n", s);
   fprintf(stdout, "        --port              server port\n");
   fprintf(stdout, "        --count             times for sending data to server\n");
-  fprintf(stdout, "        --total_mb_size     total mb size(kb|mb)\n");
-  fprintf(stdout, "        --option_block_size block size(kb|mb}\n");
+  fprintf(stdout, "        --total_mb_size     total mb size(kb|k|mb|m|gb|mb)\n");
+  fprintf(stdout, "        --option_block_size block size(kb|k|mb|m}\n");
   fprintf(stdout, "example:%s  127.0.0.1 6789 10  3gb  2mb\n", s);
   return -1;
 }
@@ -168,17 +168,16 @@ int main(int argc, char *argv[])
     rand_str(pm->data, pm->length);
     pm->data[pm->length - 1] = '\0';
 
-    double total = ((sizeof(char) * pm->length * sm.number) / 1024 / 1024) * sm.count;
+    double total_bytes = sm.length * sm.number * sm.count;
     char buf[1024] = {'\0'};
-    sprintf((char *)&buf, " |****client write %.3f Mib to server[%s],", total, server_ip);
+    sprintf((char *)&buf, " |****client write %.3f Mib to server[%s],", (double)total_bytes / 1024 / 1024, server_ip);
     struct timeval start;
-struct timeval finish;
-gettimeofday(&start,NULL);
+    struct timeval finish;
+    gettimeofday(&start, NULL);
 
-    //clock_t start = clock();
-    for (int j = 0; j < sm.count; j++)
+    for (int j = 1; j <= sm.count; j++)
     {
-      for (int i = 0; i < sm.number; i++)
+      for (int i = 1; i <= sm.number; i++)
       {
         int write_len = write_n(sock, pm, ac_size);
         assert(write_len == ac_size);
@@ -188,10 +187,11 @@ gettimeofday(&start,NULL);
         ack = ntohl(ack);
         assert(ack == sm.length);
       }
+      fprintf(stdout, "    ...client finish  transmission %.3f Mib\n", total_bytes / sm.count / 1024 / 1024);
     }
-    gettimeofday(&finish,NULL);    
-    double elapsed = (double)((finish.tv_sec-start.tv_sec)*1000000+(finish.tv_usec-start.tv_usec))/1000000;
-    fprintf(stdout, "%s elapsed: %.3f seconds,network bandwidth :%.3f MiB/s\n", buf, elapsed, bytes / 1024 / 1024 / elapsed);
+    gettimeofday(&finish, NULL);
+    double elapsed = (double)((finish.tv_sec - start.tv_sec) * 1000000 + (finish.tv_usec - start.tv_usec)) / 1000000;
+    fprintf(stdout, "%s elapsed: %.3f seconds,network bandwidth :%.3f MiB/s\n", buf, elapsed, total_bytes / 1024 / 1024 / elapsed);
     if (pm != NULL)
     {
       free(pm);

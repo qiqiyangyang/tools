@@ -4,27 +4,38 @@
   > Mail:perrynzhou@gmail.com
   > Created Time: 三 10/31 10:15:53 2018
  ************************************************************************/
-
+#define _GNU_SOURCE
 #include "dict.h"
 #include "ttcp-common.h"
 #include <assert.h>
 #include <errno.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdbool.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
 #define STD_BACKLOG (1024)
 #define MAX_BUCKET_SIZE (16383)
 static pthread_mutex_t lock;
 static dict *map;
+typedef struct cpu_set_info
+{
+  int cpu_num;
+  int sock;
+} cpu_set_info;
 
+typedef struct cpu_set_thread_info
+{
+  int id;
+  cpu_set_info *csi;
+} cpu_set_thread_info;
 typedef struct request
 {
   session_msg sm;
@@ -32,7 +43,12 @@ typedef struct request
   pthread_t id;
   pthread_t parent_id;
 } request;
-static request *request_create(int cfd)
+inline static void cpu_set_info_init(cpu_set_info *csi, int sock)
+{
+  csi->cpu_num = sysconf(_SC_NPROCESSORS_CONF);
+  csi->sock = sock;
+}
+inline static request *request_create(int cfd)
 {
   request *req = (request *)calloc(1, sizeof(*req));
   req->cfd = cfd;
@@ -106,8 +122,13 @@ void handle_connection(void *arg)
 
   char result[2048] = {'\0'};
   double pkg_size = (double)req->sm.length / 1024 / 1024;
-  double total = (req->sm.length * req->sm.number * req->sm.count) / 1024 / 1024;
-  fprintf(stdout, " **new connection %s ,session:{count=%d,number=%d,packet length=%.4fMib}, runing in %ld thread,handing by sub-thread %ld\n", client_ip, req->sm.count, req->sm.number, pkg_size, req->parent_id, pthread_self());
+  double total =
+      (req->sm.length * req->sm.number * req->sm.count) / 1024 / 1024;
+  fprintf(stdout,
+          " **new connection %s ,session:{count=%d,number=%d,packet "
+          "length=%.4fMib}, runing in %ld thread,handing by sub-thread %ld\n",
+          client_ip, req->sm.count, req->sm.number, pkg_size, req->parent_id,
+          pthread_self());
 
   size_t ac_size = sizeof(payload_msg) + req->sm.length;
   payload_msg *pm = (payload_msg *)calloc(1, ac_size);
@@ -140,8 +161,13 @@ void handle_connection(void *arg)
     }
   }
   gettimeofday(&finish, NULL);
-  double elapsed = (double)((finish.tv_sec - start.tv_sec) * 1000000 + (finish.tv_usec - start.tv_usec)) / 1000000;
-  fprintf(stdout, "    **thread %ld elapsed:%.3f seconds,recieve %.3f Mib from %s, network-bandwidth:%.3f MiB/s\n\n", pthread_self(), elapsed, total, client_ip, total / elapsed);
+  double elapsed = (double)((finish.tv_sec - start.tv_sec) * 1000000 +
+                            (finish.tv_usec - start.tv_usec)) /
+                   1000000;
+  fprintf(stdout,
+          "    **thread %ld elapsed:%.3f seconds,recieve %.3f Mib from %s, "
+          "network-bandwidth:%.3f MiB/s\n\n",
+          pthread_self(), elapsed, total, client_ip, total / elapsed);
 
   if (pm != NULL)
   {
@@ -155,11 +181,33 @@ void handle_connection(void *arg)
 }
 void handle_accept_request(void *arg)
 {
-  int *sock = (int *)arg;
-  fprintf(stdout, "|######### start worker thread %ld for accpet connection\n", pthread_self());
+  cpu_set_thread_info *cti = (cpu_set_thread_info *)arg;
+  pthread_t self = pthread_self();
+  cpu_set_t set;
+  cpu_set_t get;
+  CPU_ZERO(&set);
+  CPU_ZERO(&get);
+  if (cti->id < cti->csi->cpu_num)
+  {
+    CPU_SET(cti->id, &set);
+  }
+  else
+  {
+    CPU_SET(cti->id % cti->csi->cpu_num, &set);
+  }
+  pthread_setaffinity_np(self, sizeof(cpu_set_t), &set);
+  pthread_getaffinity_np(self, sizeof(cpu_set_t), &get);
+  for (int i = 0; i < cti->csi->cpu_num; i++)
+  {
+    if (CPU_ISSET(i, &get))
+    {
+      fprintf(stdout, "|######### start worker thread %ld bind with cpu%d\n",
+              self, i);
+    }
+  }
   while (1)
   {
-    int cfd = accept(*sock, (struct sockaddr *)NULL, NULL);
+    int cfd = accept(cti->csi->sock, (struct sockaddr *)NULL, NULL);
     if (cfd == -1)
     {
       continue;
@@ -214,13 +262,35 @@ int main(int argc, char *argv[])
     map->key_len = &client_len;
     map->key_destroy = map->val_destroy = &free;
   }
-  fprintf(stdout, "|************perrynzhou@gmail.com****************|\n\n");
+  fprintf(stdout, "*************************perrynzhou@gmail.com**************************|\n\n");
+
+  //bind main process
+  cpu_set_info csi;
+  cpu_set_info_init(&csi, sock);
+  pid_t pid = getpid();
+  cpu_set_t mset, mget;
+  CPU_ZERO(&mset);
+  CPU_ZERO(&mget);
+  CPU_SET(0, &mset);
+  sched_setaffinity(pid, sizeof(cpu_set_t), &mset);
+  sched_getaffinity(pid, sizeof(cpu_set_t), &mget);
+  for (int i = 0; i < csi.cpu_num; i++)
+  {
+    if (CPU_ISSET(i, &mget))
+    {
+      fprintf(stdout, "|************ttcp main %ld  running at %s:%d with cpu%d************|\n", pid, "127.0.0.1", port, i);
+    }
+  }
+
   pthread_t thds[thd_size];
-  fprintf(stdout, "|************start ttcp server running at %s:%d************|\n", "127.0.0.1", port);
+  cpu_set_thread_info cti[thd_size];
+  memset(&cti, 0, sizeof(cpu_set_thread_info) * thd_size);
   for (int i = 0; i < thd_size; i++)
   {
+    cti[i].id = i;
+    cti[i].csi = &csi;
     pthread_create(&thds[i], NULL, (void *)&handle_accept_request,
-                   (void *)&sock);
+                   (void *)&cti[i]);
   }
   for (int i = 0; i < thd_size; i++)
   {
