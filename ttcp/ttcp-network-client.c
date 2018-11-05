@@ -68,6 +68,7 @@ static uint64_t uint_convert(char *s, bool flag)
       block_bytes = ut * 1024 * 1024 * 1024;
     }
   }
+  fprintf(stdout,".......uint mb:%.3f\n",block_bytes/1024/1024);
   return block_bytes;
 }
 int usage(const char *s)
@@ -171,13 +172,17 @@ int main(int argc, char *argv[])
 
     double total_bytes = sm.length * sm.number * sm.count;
     char buf[1024] = {'\0'};
-    sprintf((char *)&buf, " |****client write %.3f Mib to server[%s],", (double)total_bytes / 1024 / 1024, server_ip);
+    sprintf((char *)&buf, "|****client write %.3f Mib to server[%s],", (double)total_bytes / 1024 / 1024, server_ip);
+    fprintf(stdout,"....result:%.3f\n",total_bytes/1024/1024);
     struct timeval start;
     struct timeval finish;
     gettimeofday(&start, NULL);
-
+    double single_bytes = total_bytes / sm.count;
     for (int j = 1; j <= sm.count; j++)
     {
+      struct timeval cur_start;
+      struct timeval cur_finish;
+      gettimeofday(&cur_start, NULL);
       for (int i = 1; i <= sm.number; i++)
       {
         int write_len = write_n(sock, pm, ac_size);
@@ -188,7 +193,9 @@ int main(int argc, char *argv[])
         ack = ntohl(ack);
         assert(ack == sm.length);
       }
-      fprintf(stdout, "    ...client finish  transmission %.3f Mib\n", total_bytes / sm.count / 1024 / 1024);
+      gettimeofday(&cur_finish, NULL);
+      double cur_elapsed = (double)((cur_finish.tv_sec - cur_start.tv_sec) * 1000000 + (cur_finish.tv_usec - cur_start.tv_usec)) / 1000000;
+      fprintf(stdout, "    |--client finish  transmission %.3f Mib,elapsed: %.3f seconds,bandwidth :%.3f Mib/s\n", single_bytes / 1024 / 1024, cur_elapsed, single_bytes / 1024 / 1024 / cur_elapsed);
     }
     gettimeofday(&finish, NULL);
     double elapsed = (double)((finish.tv_sec - start.tv_sec) * 1000000 + (finish.tv_usec - start.tv_usec)) / 1000000;
