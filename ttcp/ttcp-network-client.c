@@ -73,6 +73,7 @@ static uint64_t uint_convert(char *s, bool flag)
 int usage(const char *s)
 {
   fprintf(stdout, "\nusage: %s {host} {port} {count} {total_mb_size} {option_block_size}\n", s);
+  fprintf(stdout, "        --host              server host address\n");
   fprintf(stdout, "        --port              server port\n");
   fprintf(stdout, "        --count             times for sending data to server\n");
   fprintf(stdout, "        --total_mb_size     total mb size(kb|k|mb|m|gb|mb)\n");
