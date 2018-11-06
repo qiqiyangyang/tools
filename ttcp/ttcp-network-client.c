@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <assert.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/time.h>
@@ -33,43 +34,44 @@ static void rand_str(char *buf, size_t len)
     buf[i] = o[(olen + rand()) % olen];
   }
 }
-static bool str_is_int(char *s)
+static uint64_t input_request_init(const char *s, bool flag)
 {
+  char prefix[64] = {'\0'};
+  char suffix[8] = {'\0'};
+  int i = 0, j = 0;
+  uint64_t val = 0;
   while (*s != '\0')
   {
-    if (!isdigit(*s))
+    if (isdigit(*s) != 0)
     {
-      return false;
+      prefix[i++] = *s;
+    }
+    else
+    {
+      suffix[j++] = *s;
     }
     s++;
   }
-  return true;
-}
-static uint64_t uint_convert(char *s, bool flag)
-{
-  size_t len = strlen(s);
-  char buf[66] = {'\0'};
-  char *save_ptr;
-  uint64_t block_bytes = 0;
-  uint64_t ut = strtoul(s, &save_ptr, 10);
-  strncpy((char *)&buf, s, len - 2);
-  if (str_is_int((char *)&buf))
+  char *prefix_ptr = (char *)&prefix;
+  char *suffix_ptr = (char *)&suffix;
+  char *save_ptr = NULL;
+  if (strlen(suffix_ptr) > 0)
   {
-    if (strncmp(save_ptr, "kb", 2) == 0 || strncmp(save_ptr, "k", 1) == 0)
+    uint64_t uint_value = strtold(prefix_ptr, &save_ptr);
+    if (strncasecmp(suffix_ptr, "mb", 2) == 0 || strncasecmp(suffix_ptr, "m", 1) == 0)
     {
-      block_bytes = ut * 1024;
+      val = uint_value * 1024 * 1024;
     }
-    else if (strncmp(save_ptr, "mb", 2) == 0 || strncmp(save_ptr, "m", 1) == 0)
+    else if (strncasecmp(suffix_ptr, "kb", 2) == 0 || strncasecmp(suffix_ptr, "k", 1) == 0)
     {
-      block_bytes = ut * 1024 * 1024;
+      val = uint_value * 1024;
     }
-    else if (flag && strncmp(save_ptr, "gb", 2) == 0 || strncmp(save_ptr, "g", 1) == 0)
+    else if (flag && strncasecmp(suffix_ptr, "gb", 2) == 0 || strncasecmp(suffix_ptr, "g", 1) == 0)
     {
-      block_bytes = ut * 1024 * 1024 * 1024;
+      val = uint_value * 1024 * 1024 * 1024;
     }
   }
-  fprintf(stdout,".......uint mb:%.3f\n",block_bytes/1024/1024);
-  return block_bytes;
+  return val;
 }
 int usage(const char *s)
 {
@@ -107,7 +109,7 @@ int main(int argc, char *argv[])
   }
   if (argv[4] != NULL)
   {
-    bytes = uint_convert(argv[4], true);
+    bytes = input_request_init(argv[4], true);
     if (bytes == 0)
     {
       bytes = STD_BLOCK_LEN * 10;
@@ -115,7 +117,7 @@ int main(int argc, char *argv[])
   }
   if (argv[5] != NULL)
   {
-    block_bytes = uint_convert(argv[5], false);
+    block_bytes = input_request_init(argv[5], false);
     if (block_bytes == 0)
     {
       block_bytes = STD_BLOCK_LEN;
@@ -149,7 +151,7 @@ int main(int argc, char *argv[])
   get_sock_info(sock, (char *)&server_ip);
   size_t len = strlen(server_ip);
 
-  fprintf(stdout, "****client start transmission data to server[%s]\n", server_ip);
+  fprintf(stdout, "****client start transmission data to server[%s],packet size:%.3f Mib\n", server_ip, (double)bytes*count/1024/1024);
   int w = write_n(sock, &sm, sizeof(sm));
   if (w != sizeof(sm))
   {
@@ -172,8 +174,7 @@ int main(int argc, char *argv[])
 
     double total_bytes = sm.length * sm.number * sm.count;
     char buf[1024] = {'\0'};
-    sprintf((char *)&buf, "|****client write %.3f Mib to server[%s],", (double)total_bytes / 1024 / 1024, server_ip);
-    fprintf(stdout,"....result:%.3f\n",total_bytes/1024/1024);
+    sprintf((char *)&buf, "|****client finish %.3f Mib to server[%s],", (double)total_bytes / 1024 / 1024, server_ip);
     struct timeval start;
     struct timeval finish;
     gettimeofday(&start, NULL);
