@@ -24,49 +24,42 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #define STD_BACKLOG (1024)
+#define STD_MAX_BLOCK_LEN (64)
 #define STD_BLOCK_LEN (1 * 1024 * 1024)
 static void rand_str(char *buf, size_t len)
 {
   const char o[] = "0123456789ABCDEF";
   size_t olen = sizeof(o) / sizeof(char);
-  for (size_t i = 0; i < len; i++)
+  for (size_t i = 0; i < len - 1; i++)
   {
     buf[i] = o[(olen + rand()) % olen];
   }
+  buf[len - 1] = '\0';
 }
-static uint64_t input_request_init(const char *s, bool flag)
+static uint64_t string_to_uint64(const char *s, bool flag)
 {
-  char prefix[64] = {'\0'};
-  char suffix[8] = {'\0'};
-  int i = 0, j = 0;
-  uint64_t val = 0;
-  while (*s != '\0')
-  {
-    if (isdigit(*s) != 0)
-    {
-      prefix[i++] = *s;
-    }
-    else
-    {
-      suffix[j++] = *s;
-    }
-    s++;
-  }
-  char *prefix_ptr = (char *)&prefix;
-  char *suffix_ptr = (char *)&suffix;
+
   char *save_ptr = NULL;
-  if (strlen(suffix_ptr) > 0)
+  uint64_t uint_value = strtold(s, &save_ptr);
+  uint64_t val = 0;
+  if (strlen(save_ptr) > 0)
   {
-    uint64_t uint_value = strtold(prefix_ptr, &save_ptr);
-    if (strncasecmp(suffix_ptr, "mb", 2) == 0 || strncasecmp(suffix_ptr, "m", 1) == 0)
+    if (strncasecmp(save_ptr, "mb", 2) == 0 || strncasecmp(save_ptr, "m", 1) == 0)
     {
-      val = uint_value * 1024 * 1024;
+      if (!flag && uint_value > STD_MAX_BLOCK_LEN)
+      {
+        val = STD_MAX_BLOCK_LEN * 1024 * 1024;
+      }
+      else
+      {
+        val = uint_value * 1024 * 1024;
+      }
     }
-    else if (strncasecmp(suffix_ptr, "kb", 2) == 0 || strncasecmp(suffix_ptr, "k", 1) == 0)
+    else if (strncasecmp(save_ptr, "kb", 2) == 0 || strncasecmp(save_ptr, "k", 1) == 0)
     {
       val = uint_value * 1024;
     }
-    else if (flag && strncasecmp(suffix_ptr, "gb", 2) == 0 || strncasecmp(suffix_ptr, "g", 1) == 0)
+    else if (flag && strncasecmp(save_ptr, "gb", 2) == 0 || strncasecmp(save_ptr, "g", 1) == 0)
     {
       val = uint_value * 1024 * 1024 * 1024;
     }
@@ -109,7 +102,7 @@ int main(int argc, char *argv[])
   }
   if (argv[4] != NULL)
   {
-    bytes = input_request_init(argv[4], true);
+    bytes = string_to_uint64(argv[4], true);
     if (bytes == 0)
     {
       bytes = STD_BLOCK_LEN * 10;
@@ -117,11 +110,15 @@ int main(int argc, char *argv[])
   }
   if (argv[5] != NULL)
   {
-    block_bytes = input_request_init(argv[5], false);
+    block_bytes = string_to_uint64(argv[5], false);
     if (block_bytes == 0)
     {
       block_bytes = STD_BLOCK_LEN;
     }
+  }
+  if (bytes < block_bytes)
+  {
+    return usage(argv[0]);
   }
   int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (sock == -1)
@@ -130,6 +127,12 @@ int main(int argc, char *argv[])
     return -1;
   }
 
+  //bytes = ((bytes + (block_bytes - 1)) & ~(block_bytes - 1))
+  if (bytes % block_bytes != 0)
+  {
+    bytes = (bytes / block_bytes + 1) * block_bytes;
+    fprintf(stdout, "\n****client command convert: %s %s %s %s %.3f Mib %.3f Mib\n", argv[0], argv[1], argv[2], argv[3], (double)bytes / 1024 / 1024, (double)block_bytes / 1024 / 1024);
+  }
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
@@ -137,6 +140,7 @@ int main(int argc, char *argv[])
   addr.sin_port = htons(port);
 
   session_msg sm;
+
   sm.number = bytes / block_bytes;
   sm.length = block_bytes;
   sm.count = count;
@@ -151,7 +155,7 @@ int main(int argc, char *argv[])
   get_sock_info(sock, (char *)&server_ip);
   size_t len = strlen(server_ip);
 
-  fprintf(stdout, "****client start transmission data to server[%s],packet size:%.3f Mib\n", server_ip, (double)bytes*count/1024/1024);
+  fprintf(stdout, "****client start transmission data to server[%s],packet size:%.3f Mib\n", server_ip, (double)bytes * count / 1024 / 1024);
   int w = write_n(sock, &sm, sizeof(sm));
   if (w != sizeof(sm))
   {
@@ -159,7 +163,6 @@ int main(int argc, char *argv[])
   }
   else
   {
-
     size_t ac_size = sizeof(payload_msg) + sm.length;
     payload_msg *pm = (payload_msg *)calloc(1, ac_size);
 
@@ -170,7 +173,6 @@ int main(int argc, char *argv[])
     }
     pm->length = sm.length;
     rand_str(pm->data, pm->length);
-    pm->data[pm->length - 1] = '\0';
 
     double total_bytes = sm.length * sm.number * sm.count;
     char buf[1024] = {'\0'};
