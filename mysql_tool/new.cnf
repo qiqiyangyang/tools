@@ -1,0 +1,10 @@
+[mysqld]
+character_set_server = utf8
+innodb_buffer_pool_size = 256M
+log_bin=mysql-bin
+basedir = /data/opt/mysql5635
+datadir = /data/opt/mysql5635/data
+port = 3305
+socket = /tmp/3305.sock
+ log_error = "/data/opt/mysql5635/data/local.log"
+sql_mode=NO_ENGINE_SUBSTITUTION,STRICT_TRANS_TABLES 
