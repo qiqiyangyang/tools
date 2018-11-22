@@ -17,5 +17,6 @@ func TestNewTable(t *testing.T) {
 	table, err := NewTable("u_order", pgCon)
 	assert.NotNil(t, table)
 	assert.Nil(t, err)
+	assert.NotEqual(t, len(table.ColumnInfo), 0)
 	pgCon.Close()
 }
