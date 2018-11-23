@@ -1,0 +1,14 @@
+{
+    "MySQLConfig": {
+        "Host": "127.0.0.1",
+        "Port": 5432,
+        "User": "admin",
+        "PassWord": "test",
+        "DbName": "testdb"
+    },
+    "CreateStatement": "create table test(id int)",
+    "MaxConnections": 100,
+    "UpdateColumnCount": 4,
+    "SelectColumnCount": 2,
+    "DeleteColumnCount": 1
+}
