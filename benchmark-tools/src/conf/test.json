@@ -1,0 +1,16 @@
+{
+    "PostgresqlConfig": {
+        "ServerConfig": {
+            "Host": "10.37.129.5",
+            "Port": 5432,
+            "User": "admin",
+            "PassWord": "test",
+            "DbName": "demo"
+        },
+        "TargetTable": "test",
+        "MaxBatchSize": 64,
+        "TargetTableFiledList": "id serial,name varchar(64)",
+        "MaxConnections": 100,
+        "TimeIntervalMilliSecond":100
+    }
+}
