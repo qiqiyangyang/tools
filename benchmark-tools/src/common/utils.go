@@ -1,13 +1,14 @@
 package common
 
 import (
+	"log"
 	"math/rand"
 
 	uuid "github.com/satori/go.uuid"
 )
 
 const (
-	OperationCount = 4
+	OperationCount = 2
 )
 
 var (
@@ -20,9 +21,10 @@ func GenUUid() string {
 }
 func GenVarch(n uint32) string {
 	b := make([]rune, n)
-	for i := range b {
+	for i := 0; i < int(n); i++ {
 		b[i] = origin[rand.Intn(len(origin))]
 	}
+	log.Println("nil string:", string(b))
 	return string(b)
 }
 func GenInt() int64 {
