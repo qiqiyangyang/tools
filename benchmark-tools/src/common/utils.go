@@ -1,14 +1,9 @@
 package common
 
 import (
-	"log"
 	"math/rand"
 
 	uuid "github.com/satori/go.uuid"
-)
-
-const (
-	OperationCount = 2
 )
 
 var (
@@ -24,9 +19,14 @@ func GenVarch(n uint32) string {
 	for i := 0; i < int(n); i++ {
 		b[i] = origin[rand.Intn(len(origin))]
 	}
-	log.Println("nil string:", string(b))
 	return string(b)
 }
-func GenInt() int64 {
+func GenInt32() int32 {
+	return rand.Int31()
+}
+func GenInt16() int16 {
+	return int16(rand.Int31n(int32(32767) - 16))
+}
+func GenInt64() int64 {
 	return rand.Int63()
 }
