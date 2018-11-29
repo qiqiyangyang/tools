@@ -3,6 +3,7 @@ package main
 import (
 	"common"
 	"conf"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,7 +14,9 @@ import (
 	"time"
 )
 
-var configPath = "../../conf/test.json"
+var (
+	configPath = flag.String("config", "./conf.json", "config for benchmark tools")
+)
 
 const (
 	TableSizeFmt = "select pg_size_pretty(pg_relation_size('%s'))"
@@ -40,7 +43,8 @@ func GetTableSize(config *conf.Config, conn common.Connection) (info string) {
 	return info
 }
 func main() {
-	config, err := conf.NewConfig(configPath)
+	flag.Parse()
+	config, err := conf.NewConfig(*configPath)
 	if err != nil {
 		panic(err)
 	}
