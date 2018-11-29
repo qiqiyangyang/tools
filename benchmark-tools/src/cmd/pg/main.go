@@ -42,6 +42,7 @@ func GetTableSize(config *conf.Config, conn common.Connection) (info string) {
 	}
 	return info
 }
+
 func main() {
 	flag.Parse()
 	config, err := conf.NewConfig(*configPath)
@@ -58,13 +59,12 @@ func main() {
 		panic(err)
 	}
 
-	var tps uint64
-	var duration uint64
+	operationCounter := &common.OperationCounter{}
 	tables := make([]*pg.Table, config.PostgresqlConfig.MaxConnections)
 	wg := &sync.WaitGroup{}
 	wg.Add(config.PostgresqlConfig.MaxConnections)
 	for i := 0; i < config.PostgresqlConfig.MaxConnections; i++ {
-		table, err := pg.NewTable(config.PostgresqlConfig, &duration, &tps, wg)
+		table, err := pg.NewTable(config.PostgresqlConfig, operationCounter, wg)
 		if err != nil {
 			panic(err)
 		}
@@ -77,7 +77,7 @@ func main() {
 	for i := 0; i < config.PostgresqlConfig.MaxConnections; i++ {
 		go tables[i].Run(stop)
 	}
-	ticker := time.NewTicker(time.Second * 1)
+	ticker := time.NewTicker(time.Microsecond * 500)
 	defer ticker.Stop()
 	defer fmt.Println("..exit pg benchamrk...")
 	defer wg.Wait()
@@ -89,8 +89,8 @@ func main() {
 			}
 			return
 		case <-ticker.C:
-			seconds := float64(duration) / 1000
-			fmt.Printf("%s Size:%s,current QPS : %f\n", config.PostgresqlConfig.TargetTable, GetTableSize(config, pgCon), float64(tps)/seconds)
+			seconds := float64(operationCounter.Duration) / 1000
+			fmt.Printf(" %-2s Size:%-8s  QPS:%-8f  Insert:%-8d  Delete:%-8d  Select:%-8d  Update:%-8d\n", config.PostgresqlConfig.TargetTable, GetTableSize(config, pgCon), float64(operationCounter.Count)/seconds, operationCounter.InsertCount, operationCounter.DeleteCount, operationCounter.SelectCount, operationCounter.UpdateCount)
 		}
 	}
 	defer pgCon.Close()

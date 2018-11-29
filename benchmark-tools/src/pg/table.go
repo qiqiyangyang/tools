@@ -6,12 +6,13 @@ import (
 	"conf"
 	"database/sql"
 	"fmt"
-	"log"
 	"math/rand"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 type TypeIndex int
@@ -35,7 +36,7 @@ const (
 	QueryTableStmtFmt   = "select %s from %s  ORDER BY random() limit %d"
 	PreDropTableStmtFmt = "drop table if exists  ?"
 	CreateTableStmtFmt  = "create table if not exists  %s(?)"
-	DeleteTableStmtFmt  = "delete * from %s where %s = ?"
+	DeleteTableStmtFmt  = "delete  from %s where %s = ?"
 	UpdateTableStmtFmt  = "update %s set ? where %s = %d"
 	SelectTableStmtFmt  = "select ? from %s where %s = %s"
 
@@ -55,6 +56,7 @@ var (
 		"bigint",
 		"smallint",
 		"timestamp",
+		"common",
 	}
 )
 
@@ -71,20 +73,19 @@ type SelectColumn struct {
 	IsInit bool
 }
 type Table struct {
-	columnInfo   []*Column
-	conn         common.Connection
-	pgConfig     *conf.PgConfig
-	mtx          sync.Mutex
-	SerialColNum int
-	wg           *sync.WaitGroup
-	mainWg       *sync.WaitGroup
-	stop         chan struct{}
-	count        *uint64
-	duration     *uint64
-	selectCh     chan SelectColumn
+	columnInfo       []*Column
+	conn             common.Connection
+	pgConfig         *conf.PgConfig
+	mtx              sync.Mutex
+	SerialColNum     int
+	wg               *sync.WaitGroup
+	mainWg           *sync.WaitGroup
+	stop             chan struct{}
+	selectCh         chan []SelectColumn
+	operationCounter *common.OperationCounter
 }
 
-func NewTable(config *conf.PgConfig, duration *uint64, tps *uint64, mainWg *sync.WaitGroup) (*Table, error) {
+func NewTable(config *conf.PgConfig, operationCounter *common.OperationCounter, mainWg *sync.WaitGroup) (*Table, error) {
 
 	conn, err := NewPgConnection(config.ServerConfig)
 	if err != nil {
@@ -127,13 +128,12 @@ func NewTable(config *conf.PgConfig, duration *uint64, tps *uint64, mainWg *sync
 	defer rows.Close()
 
 	table := &Table{
-		columnInfo: make([]*Column, 0),
-		conn:       conn,
-		pgConfig:   config,
-		count:      tps,
-		mainWg:     mainWg,
-		duration:   duration,
-		selectCh:   make(chan SelectColumn, config.QueryBatchSize),
+		columnInfo:       make([]*Column, 0),
+		conn:             conn,
+		pgConfig:         config,
+		mainWg:           mainWg,
+		selectCh:         make(chan []SelectColumn, config.QueryBatchSize),
+		operationCounter: operationCounter,
 	}
 	var tableName string
 	var buf bytes.Buffer
@@ -216,15 +216,21 @@ func (table *Table) Insert(prepareSqlStmt string) {
 	var sbuf bytes.Buffer
 	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
 	defer ticker.Stop()
-	var selectCol SelectColumn
+	var selectCol []SelectColumn
 	for {
 		select {
 		case <-table.stop:
 			return
 		case <-ticker.C:
 			sbuf.WriteString(prepareSqlStmt)
+			selectN := table.pgConfig.QueryBatchSize
+
+			if selectN > table.pgConfig.InsertBatchSize {
+				selectN = table.pgConfig.InsertBatchSize
+			}
+			selectCol = make([]SelectColumn, selectN)
 			for i := 0; i < table.pgConfig.InsertBatchSize; i++ {
-				selectCol.IsInit = true
+
 				eachValue := make([]string, len(table.columnInfo))
 				var value string
 				for index, v := range table.columnInfo {
@@ -258,9 +264,11 @@ func (table *Table) Insert(prepareSqlStmt string) {
 				if n == 0 {
 					n = 1
 				}
-
-				selectCol.Name = table.columnInfo[n].Name
-				selectCol.Val = eachValue[n]
+				if i < selectN {
+					selectCol[i].IsInit = true
+					selectCol[i].Name = table.columnInfo[n].Name
+					selectCol[i].Val = eachValue[n]
+				}
 				eachValue = eachValue[1:len(table.columnInfo)]
 				if i == 0 {
 					value = fmt.Sprintf("(%s)", strings.Join(eachValue, ","))
@@ -272,13 +280,13 @@ func (table *Table) Insert(prepareSqlStmt string) {
 			start := time.Now()
 			_, err := table.conn.Exec(sbuf.String())
 			sbuf.Reset()
-			if err == nil {
-				atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
-				atomic.AddUint64(table.count, uint64(table.pgConfig.InsertBatchSize))
+			if err != nil {
+				log.Errorf("%s:%v\n", "insert", err)
+				continue
 			}
-			/* else {
-				log.Println(err)
-			}*/
+			atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+			atomic.AddUint64(&table.operationCounter.Count, uint64(table.pgConfig.InsertBatchSize))
+			atomic.AddUint64(&table.operationCounter.InsertCount, uint64(table.pgConfig.InsertBatchSize))
 		default:
 		}
 
@@ -320,6 +328,7 @@ func (table *Table) typeConvertion(colType string) interface{} {
 func (table *Table) Update() {
 	defer table.wg.Done()
 	if table.pgConfig.UpdateBatchSize <= 0 {
+		log.Println("update operation is disabled")
 		return
 	}
 	columnInfo := make([]string, len(table.columnInfo))
@@ -341,8 +350,9 @@ func (table *Table) Update() {
 			start := time.Now()
 			rows, err := table.conn.Query(originSelectStmt)
 			if err == nil {
-				atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
-				atomic.AddUint64(table.count, 1)
+				atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+				atomic.AddUint64(&table.operationCounter.SelectCount, 1)
+				atomic.AddUint64(&table.operationCounter.Count, 1)
 				defer rows.Close()
 				selectVal := make([][]interface{}, table.pgConfig.UpdateBatchSize)
 				for i := 0; i < table.pgConfig.UpdateBatchSize; i++ {
@@ -356,7 +366,7 @@ func (table *Table) Update() {
 				for rows.Next() {
 					err = rows.Scan(selectVal[index]...)
 					if err != nil {
-						log.Println(err)
+						log.Errorf("%s:%v\n", "update", err)
 						continue
 					}
 					index = index + 1
@@ -398,10 +408,13 @@ func (table *Table) Update() {
 					execStmt = strings.Replace(execStmt, "?", strings.Join(updateSet, ","), 1)
 					start := time.Now()
 					_, err := table.conn.Exec(execStmt)
-					if err == nil {
-						atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
-						atomic.AddUint64(table.count, 1)
+					if err != nil {
+						log.Errorf("%s:%v\n", "update", err)
+						continue
 					}
+					atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+					atomic.AddUint64(&table.operationCounter.UpdateCount, 1)
+					atomic.AddUint64(&table.operationCounter.Count, 1)
 				}
 			}
 		}
@@ -412,6 +425,7 @@ func (table *Table) Update() {
 func (table *Table) Delete() {
 	defer table.wg.Done()
 	if table.pgConfig.DeleteBatchSize <= 0 {
+		log.Println("delete operation is disabled")
 		return
 	}
 	columnInfo := make([]string, len(table.columnInfo))
@@ -427,14 +441,16 @@ func (table *Table) Delete() {
 		case <-table.stop:
 			return
 		case <-ticker.C:
-			if err := table.conn.Ping(); err != nil {
-				return
-			}
+			start := time.Now()
 			rows, err := table.conn.Query(originSelectStmt)
+			if err != nil {
+				log.Errorf("%s:%v\n", "select", err)
+				continue
+			}
 			if err == nil {
-				start := time.Now()
-				atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
-				atomic.AddUint64(table.count, 1)
+				atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+				atomic.AddUint64(&table.operationCounter.SelectCount, 1)
+				atomic.AddUint64(&table.operationCounter.Count, 1)
 				defer rows.Close()
 				selectVal := make([][]interface{}, table.pgConfig.DeleteBatchSize)
 				for i := 0; i < table.pgConfig.DeleteBatchSize; i++ {
@@ -487,10 +503,13 @@ func (table *Table) Delete() {
 					}
 					start := time.Now()
 					_, err := table.conn.Exec(execStmt)
-					if err == nil {
-						atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
-						atomic.AddUint64(table.count, 1)
+					if err != nil {
+						log.Errorf("%s:%v\n", "delete", err)
+						continue
 					}
+					atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+					atomic.AddUint64(&table.operationCounter.DeleteCount, 1)
+					atomic.AddUint64(&table.operationCounter.Count, 1)
 				}
 			}
 		}
@@ -500,6 +519,7 @@ func (table *Table) Delete() {
 func (table *Table) Select() {
 	defer table.wg.Done()
 	if table.pgConfig.InsertBatchSize <= 0 {
+		log.Println("select operation is disabled")
 		return
 	}
 	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
@@ -508,23 +528,26 @@ func (table *Table) Select() {
 		select {
 		case <-table.stop:
 			return
-		case v := <-table.selectCh:
-			if v.IsInit {
-				originSelectStmt := fmt.Sprintf(SelectTableStmtFmt, table.pgConfig.TargetTable, v.Name, v.Val)
-				if err := table.conn.Ping(); err != nil {
-					return
-				}
-				originSelectStmt = strings.Replace(originSelectStmt, "?", "*", 1)
-				start := time.Now()
-				rows, err := table.conn.Query(originSelectStmt)
-				if err == nil {
-					atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
-					atomic.AddUint64(table.count, 1)
-					rows.Close()
+		case vs := <-table.selectCh:
+			if len(vs) > 0 {
+				for _, v := range vs {
+					if v.IsInit {
+						originSelectStmt := fmt.Sprintf(SelectTableStmtFmt, table.pgConfig.TargetTable, v.Name, v.Val)
 
+						originSelectStmt = strings.Replace(originSelectStmt, "?", "*", 1)
+						start := time.Now()
+						rows, err := table.conn.Query(originSelectStmt)
+						if err != nil {
+							log.Errorf("%s:%v\n", "select", err)
+							continue
+						}
+						rows.Close()
+						atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+						atomic.AddUint64(&table.operationCounter.SelectCount, 1)
+						atomic.AddUint64(&table.operationCounter.Count, 1)
+					}
 				}
 			}
-		default:
 		}
 	}
 }

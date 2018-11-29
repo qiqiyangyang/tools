@@ -10,7 +10,7 @@
         "TargetTable": "test",
         "InsertBatchSize":96,         
         "QueryBatchSize":16,     
-        "DeleteBatchSize":0,        
+        "DeleteBatchSize":1,        
         "UpdateBatchSize" :4,
         "TargetTableFiledList": "id int,name varchar(64),info char(128),start_time date,end_time timestamp",
         "MaxConnections": 64,
