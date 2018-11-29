@@ -77,7 +77,7 @@ func main() {
 	for i := 0; i < config.PostgresqlConfig.MaxConnections; i++ {
 		go tables[i].Run(stop)
 	}
-	ticker := time.NewTicker(time.Microsecond * 500)
+	ticker := time.NewTicker(time.Second * 1)
 	defer ticker.Stop()
 	defer fmt.Println("..exit pg benchamrk...")
 	defer wg.Wait()
