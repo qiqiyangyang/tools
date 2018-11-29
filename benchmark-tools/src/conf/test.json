@@ -8,8 +8,8 @@
             "DbName": "demo"
         },
         "TargetTable": "test",
-        "MaxBatchSize": 64,
-        "TargetTableFiledList": "id int,name varchar(64)",
+        "MaxBatchSize": 8,
+        "TargetTableFiledList": "id int,name varchar(64),begint date,endt timestamp",
         "MaxConnections": 100,
         "TimeIntervalMilliSecond":100
     }
