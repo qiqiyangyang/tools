@@ -1,7 +1,7 @@
 package common
 
 const (
-	OperationCount = 1
+	OperationCount = 2
 )
 const (
 	MaxBatchSize = 256

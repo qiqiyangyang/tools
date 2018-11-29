@@ -2,6 +2,7 @@ package common
 
 import (
 	"math/rand"
+	"time"
 
 	uuid "github.com/satori/go.uuid"
 )
@@ -22,11 +23,14 @@ func GenVarch(n uint32) string {
 	return string(b)
 }
 func GenInt32() int32 {
-	return rand.Int31()
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return r.Int31()
 }
 func GenInt16() int16 {
-	return int16(rand.Int31n(int32(32767) - 16))
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return int16(r.Int31n(int32(32767) - 16))
 }
 func GenInt64() int64 {
-	return rand.Int63()
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return r.Int63()
 }

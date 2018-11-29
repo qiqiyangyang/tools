@@ -8,7 +8,7 @@
             "DbName": "demo"
         },
         "TargetTable": "test",
-        "MaxBatchSize": 8,
+        "MaxBatchSize": 32,
         "TargetTableFiledList": "id int,name varchar(64),begint date,endt timestamp",
         "MaxConnections": 100,
         "TimeIntervalMilliSecond":100
