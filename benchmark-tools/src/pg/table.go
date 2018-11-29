@@ -233,6 +233,9 @@ func (table *Table) Insert(prepareSqlStmt string) {
 				sbuf.WriteString(value)
 			}
 			start := time.Now()
+			if err := table.conn.Ping(); err != nil {
+				return
+			}
 			_, err := table.conn.Exec(sbuf.String())
 			sbuf.Reset()
 			if err == nil {
@@ -279,80 +282,81 @@ func (table *Table) Update() {
 		columnInfo[index] = col.Name
 	}
 	originSelectStmt := fmt.Sprintf(QueryTableStmtFmt, strings.Join(columnInfo, ","), table.pgConfig.TargetTable, table.pgConfig.MaxBatchSize)
-	//log.Println("originSelectStmt:", originSelectStmt)
 	for {
 		select {
 		case <-table.stop:
 			return
 		default:
-			rows, err := table.conn.Query(originSelectStmt)
-			if err != nil {
-				panic(err)
+			if err := table.conn.Ping(); err != nil {
 				return
 			}
-			start := time.Now()
-			atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+			rows, err := table.conn.Query(originSelectStmt)
+			if err == nil {
 
-			atomic.AddUint64(table.count, 1)
-			defer rows.Close()
-			selectVal := make([][]interface{}, table.pgConfig.MaxBatchSize)
-			for i := 0; i < table.pgConfig.MaxBatchSize; i++ {
-				selectVal[i] = make([]interface{}, len(table.columnInfo))
-				for j := 0; j < len(table.columnInfo); j++ {
-					colType := table.columnInfo[j].Type
-					selectVal[i][j] = table.typeConvertion(colType)
-				}
-			}
-			index := 0
-			for rows.Next() {
-				err = rows.Scan(selectVal[index]...)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				index = index + 1
-			}
-			if index <= 0 {
-				continue
-			}
-			table.pgConfig.MaxBatchSize = index
-			for i := 0; i < index; i++ {
-				seqId := *selectVal[i][0].(*int64)
-				execStmt := fmt.Sprintf(UpdateTableStmtFmt, table.pgConfig.TargetTable, table.columnInfo[0].Name, seqId)
-				updateSet := make([]string, 0)
-				for colIndex, col := range table.columnInfo {
-					if !table.columnInfo[colIndex].IsSerial {
-						switch table.columnInfo[colIndex].Type {
-						case PgDataTypes[IntegerTypeIndex]:
-							updateSet = append(updateSet, fmt.Sprintf("%s =%d", col.Name, common.GenInt32()))
-							break
-						case PgDataTypes[BigIntTypeIndex]:
-							updateSet = append(updateSet, fmt.Sprintf("%s =%d", col.Name, common.GenInt64()))
-							break
-						case PgDataTypes[SmallIntTypeIndex]:
-							updateSet = append(updateSet, fmt.Sprintf("%s =%d", col.Name, common.GenInt16()))
-							break
-						case PgDataTypes[CharacterTypeIndex]:
-							updateSet = append(updateSet, fmt.Sprintf("%s ='%s'", col.Name, common.GenVarch(uint32(col.Len))))
-							break
-						case PgDataTypes[TextTypeIndex]:
-							updateSet = append(updateSet, fmt.Sprintf("%s ='%s'", col.Name, common.GenVarch(uint32(col.Len))))
-							break
-						case PgDataTypes[TimeStampTypeIndex]:
-							updateSet = append(updateSet, fmt.Sprintf("%s =to_timestamp('%s','%s')", col.Name, time.Now().Format("2006-01-02 15:04:05.000"), "yyyy-mm-dd hh24:mi:ms"))
-							break
-						case PgDataTypes[DateTypeIndex]:
-							updateSet = append(updateSet, fmt.Sprintf("%s =to_timestamp('%s','%s')", col.Name, time.Now().Format("2006-01-02 15:04:05.000"), "yyyy-mm-dd hh24:mi:ms"))
-							break
-						}
+				start := time.Now()
+				atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+
+				atomic.AddUint64(table.count, 1)
+				defer rows.Close()
+				selectVal := make([][]interface{}, table.pgConfig.MaxBatchSize)
+				for i := 0; i < table.pgConfig.MaxBatchSize; i++ {
+					selectVal[i] = make([]interface{}, len(table.columnInfo))
+					for j := 0; j < len(table.columnInfo); j++ {
+						colType := table.columnInfo[j].Type
+						selectVal[i][j] = table.typeConvertion(colType)
 					}
 				}
-				execStmt = strings.Replace(execStmt, "?", strings.Join(updateSet, ","), 1)
-				start := time.Now()
-				_, err := table.conn.Exec(execStmt)
-				if err == nil {
-					atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
-					atomic.AddUint64(table.count, 1)
+				index := 0
+				for rows.Next() {
+					err = rows.Scan(selectVal[index]...)
+					if err != nil {
+						log.Println(err)
+						continue
+					}
+					index = index + 1
+				}
+				if index <= 0 {
+					continue
+				}
+				table.pgConfig.MaxBatchSize = index
+				for i := 0; i < index; i++ {
+					seqId := *selectVal[i][0].(*int64)
+					execStmt := fmt.Sprintf(UpdateTableStmtFmt, table.pgConfig.TargetTable, table.columnInfo[0].Name, seqId)
+					updateSet := make([]string, 0)
+					for colIndex, col := range table.columnInfo {
+						if !table.columnInfo[colIndex].IsSerial {
+							switch table.columnInfo[colIndex].Type {
+							case PgDataTypes[IntegerTypeIndex]:
+								updateSet = append(updateSet, fmt.Sprintf("%s =%d", col.Name, common.GenInt32()))
+								break
+							case PgDataTypes[BigIntTypeIndex]:
+								updateSet = append(updateSet, fmt.Sprintf("%s =%d", col.Name, common.GenInt64()))
+								break
+							case PgDataTypes[SmallIntTypeIndex]:
+								updateSet = append(updateSet, fmt.Sprintf("%s =%d", col.Name, common.GenInt16()))
+								break
+							case PgDataTypes[CharacterTypeIndex]:
+								updateSet = append(updateSet, fmt.Sprintf("%s ='%s'", col.Name, common.GenVarch(uint32(col.Len))))
+								break
+							case PgDataTypes[TextTypeIndex]:
+								updateSet = append(updateSet, fmt.Sprintf("%s ='%s'", col.Name, common.GenVarch(uint32(col.Len))))
+								break
+							case PgDataTypes[TimeStampTypeIndex]:
+								updateSet = append(updateSet, fmt.Sprintf("%s =to_timestamp('%s','%s')", col.Name, time.Now().Format("2006-01-02 15:04:05.000"), "yyyy-mm-dd hh24:mi:ms"))
+								break
+							case PgDataTypes[DateTypeIndex]:
+								updateSet = append(updateSet, fmt.Sprintf("%s =to_timestamp('%s','%s')", col.Name, time.Now().Format("2006-01-02 15:04:05.000"), "yyyy-mm-dd hh24:mi:ms"))
+								break
+							}
+						}
+					}
+					execStmt = strings.Replace(execStmt, "?", strings.Join(updateSet, ","), 1)
+					start := time.Now()
+					_, err := table.conn.Exec(execStmt)
+					if err == nil {
+						atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+						atomic.AddUint64(table.count, 1)
+					}
 				}
 			}
 		}

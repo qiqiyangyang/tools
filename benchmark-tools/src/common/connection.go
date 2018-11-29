@@ -7,4 +7,5 @@ type Connection interface {
 	ExecPrepareStmt(sqlStmt string, values ...interface{}) (sql.Result, error)
 	Query(sqlStmt string) (*sql.Rows, error)
 	Close()
+	Ping() error
 }

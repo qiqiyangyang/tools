@@ -10,7 +10,7 @@
         "TargetTable": "test",
         "MaxBatchSize": 32,
         "TargetTableFiledList": "id int,name varchar(64),begint date,endt timestamp",
-        "MaxConnections": 100,
+        "MaxConnections": 200,
         "TimeIntervalMilliSecond":100
     }
 }
