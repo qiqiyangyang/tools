@@ -19,7 +19,10 @@ type PgServerConfig struct {
 type PgConfig struct {
 	ServerConfig            *PgServerConfig
 	TargetTable             string
-	MaxBatchSize            int
+	InsertBatchSize         int
+	QueryBatchSize          int
+	DeleteBatchSize         int
+	UpdateBatchSize         int
 	TargetTableFiledList    string
 	MaxConnections          int
 	TimeIntervalMilliSecond time.Duration

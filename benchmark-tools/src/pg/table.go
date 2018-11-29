@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math/rand"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,9 @@ import (
 
 type TypeIndex int
 
+const (
+	MaxTextLen = 1024
+)
 const (
 	IntegerTypeIndex TypeIndex = iota
 	CharacterTypeIndex
@@ -28,12 +32,13 @@ const (
 	SerialKeyWord = "nextval"
 )
 const (
-	QueryTableStmtFmt        = "select %s from %s  ORDER BY random() limit %d"
-	PreDropTableStmtFmt      = "drop table if exists  ?"
-	CreateTableStmtFmt       = "create table if not exists  %s(?)"
-	DeleteTableStmtFmt       = "delete * from %s where %s = ?"
-	UpdateTableStmtFmt       = "update %s set ? where %s = %d"
-	SelectTableStmtFmt       = "select ? from %s where %s = ?"
+	QueryTableStmtFmt   = "select %s from %s  ORDER BY random() limit %d"
+	PreDropTableStmtFmt = "drop table if exists  ?"
+	CreateTableStmtFmt  = "create table if not exists  %s(?)"
+	DeleteTableStmtFmt  = "delete * from %s where %s = ?"
+	UpdateTableStmtFmt  = "update %s set ? where %s = %d"
+	SelectTableStmtFmt  = "select ? from %s where %s = %s"
+
 	InsertTableStmtFmt       = "insert into %s(?)values"
 	SelectMetaPrepareStmtFmt = "select a.table_name, a.column_name,a.data_type,a.character_maximum_length,COALESCE(a.column_default,'nil') from information_schema.columns a WHERE a.table_schema = 'public' and a.table_name = '?'"
 )
@@ -60,6 +65,11 @@ type Column struct {
 	IsSerial bool
 }
 
+type SelectColumn struct {
+	Name   string
+	Val    string
+	IsInit bool
+}
 type Table struct {
 	columnInfo   []*Column
 	conn         common.Connection
@@ -71,7 +81,7 @@ type Table struct {
 	stop         chan struct{}
 	count        *uint64
 	duration     *uint64
-	mutex        *sync.Mutex
+	selectCh     chan SelectColumn
 }
 
 func NewTable(config *conf.PgConfig, duration *uint64, tps *uint64, mainWg *sync.WaitGroup) (*Table, error) {
@@ -80,11 +90,22 @@ func NewTable(config *conf.PgConfig, duration *uint64, tps *uint64, mainWg *sync
 	if err != nil {
 		return nil, err
 	}
-	if config.MaxBatchSize > common.MaxBatchSize {
-		log.Printf("convert config.MaxBatchSize %d to %d\n", config.MaxBatchSize, common.MaxBatchSize)
-		config.MaxBatchSize = common.MaxBatchSize
+	if config.DeleteBatchSize > common.MaxBatchSize {
+		log.Printf("convert config.MaxBatchSize %d to %d\n", config.DeleteBatchSize, common.MaxBatchSize)
+		config.DeleteBatchSize = common.MaxBatchSize
 	}
-
+	if config.InsertBatchSize > common.MaxBatchSize {
+		log.Printf("convert config.MaxBatchSize %d to %d\n", config.InsertBatchSize, common.MaxBatchSize)
+		config.InsertBatchSize = common.MaxBatchSize
+	}
+	if config.QueryBatchSize > common.MaxBatchSize {
+		log.Printf("convert config.MaxBatchSize %d to %d\n", config.QueryBatchSize, common.MaxBatchSize)
+		config.QueryBatchSize = common.MaxBatchSize
+	}
+	if config.UpdateBatchSize > common.MaxBatchSize {
+		log.Printf("convert config.MaxBatchSize %d to %d\n", config.UpdateBatchSize, common.MaxBatchSize)
+		config.UpdateBatchSize = common.MaxBatchSize
+	}
 	createSqlStmt := fmt.Sprintf(CreateTableStmtFmt, config.TargetTable)
 	originFieldList := strings.SplitN(config.TargetTableFiledList, ",", -1)
 	fieldList := make([]string, len(originFieldList)+1)
@@ -112,6 +133,7 @@ func NewTable(config *conf.PgConfig, duration *uint64, tps *uint64, mainWg *sync
 		count:      tps,
 		mainWg:     mainWg,
 		duration:   duration,
+		selectCh:   make(chan SelectColumn, config.QueryBatchSize),
 	}
 	var tableName string
 	var buf bytes.Buffer
@@ -136,8 +158,11 @@ func NewTable(config *conf.PgConfig, duration *uint64, tps *uint64, mainWg *sync
 		} else {
 			col.Type = buf.String()
 		}
-		log.Println("column info:", col)
-		col.Len = uint32(clen.Int64)
+		if col.Type == PgDataTypes[TextTypeIndex] {
+			col.Len = uint32(MaxTextLen)
+		} else {
+			col.Len = uint32(clen.Int64)
+		}
 		buf.Reset()
 		if strings.Contains(strings.ToLower(isserial), SerialKeyWord) {
 			col.IsSerial = true
@@ -159,6 +184,8 @@ func (table *Table) Run(done chan struct{}) {
 	table.stop = make(chan struct{}, common.OperationCount)
 	go table.Insert(createStmt)
 	go table.Update()
+	go table.Delete()
+	go table.Select()
 	defer table.conn.Close()
 	for {
 		select {
@@ -187,44 +214,54 @@ func (table *Table) createPrepareStateForInsert() string {
 func (table *Table) Insert(prepareSqlStmt string) {
 	defer table.wg.Done()
 	var sbuf bytes.Buffer
+	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
+	defer ticker.Stop()
+	var selectCol SelectColumn
 	for {
 		select {
 		case <-table.stop:
 			return
-		default:
+		case <-ticker.C:
 			sbuf.WriteString(prepareSqlStmt)
-			for i := 0; i < table.pgConfig.MaxBatchSize; i++ {
-				eachValue := make([]string, 0)
+			for i := 0; i < table.pgConfig.InsertBatchSize; i++ {
+				selectCol.IsInit = true
+				eachValue := make([]string, len(table.columnInfo))
 				var value string
-				for _, v := range table.columnInfo {
+				for index, v := range table.columnInfo {
 					if !v.IsSerial {
 						switch v.Type {
 						case PgDataTypes[IntegerTypeIndex]:
-							eachValue = append(eachValue, fmt.Sprintf("%d", common.GenInt32()))
+							eachValue[index] = fmt.Sprintf("%d", common.GenInt32())
 							break
 						case PgDataTypes[BigIntTypeIndex]:
-							eachValue = append(eachValue, fmt.Sprintf("%d", common.GenInt64()))
+							eachValue[index] = fmt.Sprintf("%d", common.GenInt64())
 							break
 						case PgDataTypes[SmallIntTypeIndex]:
-							eachValue = append(eachValue, fmt.Sprintf("%d", common.GenInt16()))
+							eachValue[index] = fmt.Sprintf("%d", common.GenInt16())
 							break
 						case PgDataTypes[CharacterTypeIndex]:
-							eachValue = append(eachValue, fmt.Sprintf("'%s'", common.GenVarch(uint32(v.Len))))
+							eachValue[index] = fmt.Sprintf("'%s'", common.GenVarch(uint32(v.Len)))
 							break
 						case PgDataTypes[TextTypeIndex]:
-							eachValue = append(eachValue, fmt.Sprintf("'%s'", common.GenVarch(uint32(v.Len))))
+							eachValue[index] = fmt.Sprintf("'%s'", common.GenVarch(uint32(v.Len)))
 							break
 						case PgDataTypes[TimeStampTypeIndex]:
-							eachValue = append(eachValue, fmt.Sprintf("to_timestamp('%s','%s')", time.Now().Format("2006-01-02 15:04:05"), "yyyy-mm-dd hh24:mi:ss"))
+							eachValue[index] = fmt.Sprintf("to_timestamp('%s','%s')", time.Now().Format("2006-01-02 15:04:05"), "yyyy-mm-dd hh24:mi:ss")
 							break
 						case PgDataTypes[DateTypeIndex]:
-							eachValue = append(eachValue, fmt.Sprintf("to_date('%s','%s')", time.Now().Format("2006-01-02 15:04:05"), "yyyy-mm-dd hh24:mi:ss"))
+							eachValue[index] = fmt.Sprintf("to_date('%s','%s')", time.Now().Format("2006-01-02 15:04:05"), "yyyy-mm-dd hh24:mi:ss")
 							break
 						}
-
 					}
 				}
+				n := rand.Int31n(int32(len(table.columnInfo)))
+				if n == 0 {
+					n = 1
+				}
 
+				selectCol.Name = table.columnInfo[n].Name
+				selectCol.Val = eachValue[n]
+				eachValue = eachValue[1:len(table.columnInfo)]
 				if i == 0 {
 					value = fmt.Sprintf("(%s)", strings.Join(eachValue, ","))
 				} else {
@@ -233,15 +270,21 @@ func (table *Table) Insert(prepareSqlStmt string) {
 				sbuf.WriteString(value)
 			}
 			start := time.Now()
-			if err := table.conn.Ping(); err != nil {
-				return
-			}
 			_, err := table.conn.Exec(sbuf.String())
 			sbuf.Reset()
 			if err == nil {
 				atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
-				atomic.AddUint64(table.count, 1)
+				atomic.AddUint64(table.count, uint64(table.pgConfig.InsertBatchSize))
 			}
+			/* else {
+				log.Println(err)
+			}*/
+		default:
+		}
+
+		select {
+		case table.selectCh <- selectCol:
+		default:
 		}
 
 	}
@@ -275,31 +318,34 @@ func (table *Table) typeConvertion(colType string) interface{} {
 	return v
 }
 func (table *Table) Update() {
-	table.wg.Done()
+	defer table.wg.Done()
+	if table.pgConfig.UpdateBatchSize <= 0 {
+		return
+	}
 	columnInfo := make([]string, len(table.columnInfo))
 
 	for index, col := range table.columnInfo {
 		columnInfo[index] = col.Name
 	}
-	originSelectStmt := fmt.Sprintf(QueryTableStmtFmt, strings.Join(columnInfo, ","), table.pgConfig.TargetTable, table.pgConfig.MaxBatchSize)
+	originSelectStmt := fmt.Sprintf(QueryTableStmtFmt, strings.Join(columnInfo, ","), table.pgConfig.TargetTable, table.pgConfig.UpdateBatchSize)
+	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-table.stop:
 			return
-		default:
+		case <-ticker.C:
 			if err := table.conn.Ping(); err != nil {
 				return
 			}
+			start := time.Now()
 			rows, err := table.conn.Query(originSelectStmt)
 			if err == nil {
-
-				start := time.Now()
 				atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
-
 				atomic.AddUint64(table.count, 1)
 				defer rows.Close()
-				selectVal := make([][]interface{}, table.pgConfig.MaxBatchSize)
-				for i := 0; i < table.pgConfig.MaxBatchSize; i++ {
+				selectVal := make([][]interface{}, table.pgConfig.UpdateBatchSize)
+				for i := 0; i < table.pgConfig.UpdateBatchSize; i++ {
 					selectVal[i] = make([]interface{}, len(table.columnInfo))
 					for j := 0; j < len(table.columnInfo); j++ {
 						colType := table.columnInfo[j].Type
@@ -318,7 +364,6 @@ func (table *Table) Update() {
 				if index <= 0 {
 					continue
 				}
-				table.pgConfig.MaxBatchSize = index
 				for i := 0; i < index; i++ {
 					seqId := *selectVal[i][0].(*int64)
 					execStmt := fmt.Sprintf(UpdateTableStmtFmt, table.pgConfig.TargetTable, table.columnInfo[0].Name, seqId)
@@ -362,4 +407,124 @@ func (table *Table) Update() {
 		}
 	}
 
+}
+
+func (table *Table) Delete() {
+	defer table.wg.Done()
+	if table.pgConfig.DeleteBatchSize <= 0 {
+		return
+	}
+	columnInfo := make([]string, len(table.columnInfo))
+
+	for index, col := range table.columnInfo {
+		columnInfo[index] = col.Name
+	}
+	originSelectStmt := fmt.Sprintf(QueryTableStmtFmt, strings.Join(columnInfo, ","), table.pgConfig.TargetTable, table.pgConfig.DeleteBatchSize)
+	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-table.stop:
+			return
+		case <-ticker.C:
+			if err := table.conn.Ping(); err != nil {
+				return
+			}
+			rows, err := table.conn.Query(originSelectStmt)
+			if err == nil {
+				start := time.Now()
+				atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+				atomic.AddUint64(table.count, 1)
+				defer rows.Close()
+				selectVal := make([][]interface{}, table.pgConfig.DeleteBatchSize)
+				for i := 0; i < table.pgConfig.DeleteBatchSize; i++ {
+					selectVal[i] = make([]interface{}, len(table.columnInfo))
+					for j := 0; j < len(table.columnInfo); j++ {
+						colType := table.columnInfo[j].Type
+						selectVal[i][j] = table.typeConvertion(colType)
+					}
+				}
+				index := 0
+				for rows.Next() {
+					err = rows.Scan(selectVal[index]...)
+					if err != nil {
+						log.Println(err)
+						continue
+					}
+					index = index + 1
+				}
+				if index <= 0 {
+					continue
+				}
+				for i := 0; i < index; i++ {
+					colIndex := rand.Int31n(int32(len(table.columnInfo)))
+					colInfo := table.columnInfo[colIndex]
+					execStmt := fmt.Sprintf(DeleteTableStmtFmt, table.pgConfig.TargetTable, colInfo.Name)
+					switch colInfo.Type {
+					case PgDataTypes[IntegerTypeIndex]:
+						execStmt = strings.Replace(execStmt, "?", fmt.Sprintf("%d", *selectVal[i][colIndex].(*int32)), 1)
+						break
+					case PgDataTypes[BigIntTypeIndex]:
+						execStmt = strings.Replace(execStmt, "?", fmt.Sprintf("%d", *selectVal[i][colIndex].(*int64)), 1)
+						break
+					case PgDataTypes[SmallIntTypeIndex]:
+						execStmt = strings.Replace(execStmt, "?", fmt.Sprintf("%d", *selectVal[i][colIndex].(*int16)), 1)
+						break
+					case PgDataTypes[CharacterTypeIndex]:
+						execStmt = strings.Replace(execStmt, "?", fmt.Sprintf("'%s'", *selectVal[i][colIndex].(*string)), 1)
+						break
+					case PgDataTypes[TextTypeIndex]:
+						execStmt = strings.Replace(execStmt, "?", fmt.Sprintf("'%s'", *selectVal[i][colIndex].(*string)), 1)
+						break
+					case PgDataTypes[TimeStampTypeIndex]:
+						t := selectVal[i][colIndex].(*time.Time)
+						execStmt = strings.Replace(execStmt, "?", fmt.Sprintf("'%s'", t.Format("2006-01-02 15:04:05.000")), 1)
+						break
+					case PgDataTypes[DateTypeIndex]:
+						t := selectVal[i][colIndex].(*time.Time)
+						execStmt = strings.Replace(execStmt, "?", fmt.Sprintf("'%s'", t.Format("2006-01-02 15:04:05.000")), 1)
+						break
+					}
+					start := time.Now()
+					_, err := table.conn.Exec(execStmt)
+					if err == nil {
+						atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+						atomic.AddUint64(table.count, 1)
+					}
+				}
+			}
+		}
+	}
+}
+
+func (table *Table) Select() {
+	defer table.wg.Done()
+	if table.pgConfig.InsertBatchSize <= 0 {
+		return
+	}
+	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-table.stop:
+			return
+		case v := <-table.selectCh:
+			if v.IsInit {
+				originSelectStmt := fmt.Sprintf(SelectTableStmtFmt, table.pgConfig.TargetTable, v.Name, v.Val)
+				if err := table.conn.Ping(); err != nil {
+					return
+				}
+				originSelectStmt = strings.Replace(originSelectStmt, "?", "*", 1)
+				start := time.Now()
+				rows, err := table.conn.Query(originSelectStmt)
+				if err == nil {
+					atomic.AddUint64(table.duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+					atomic.AddUint64(table.count, 1)
+					rows.Close()
+
+				}
+			}
+		default:
+		}
+	}
 }

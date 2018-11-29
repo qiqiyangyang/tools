@@ -49,6 +49,7 @@ func main() {
 		panic(err)
 	}
 	defer pgCon.Close()
+
 	if err = Init(config, pgCon); err != nil {
 		panic(err)
 	}
