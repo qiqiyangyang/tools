@@ -18,7 +18,8 @@ import (
 type TypeIndex int
 
 const (
-	MaxTextLen = 1024
+	MaxTextLen   = 1024
+
 )
 const (
 	IntegerTypeIndex TypeIndex = iota
@@ -328,7 +329,6 @@ func (table *Table) typeConvertion(colType string) interface{} {
 func (table *Table) Update() {
 	defer table.wg.Done()
 	if table.pgConfig.UpdateBatchSize <= 0 {
-		log.Println("update operation is disabled")
 		return
 	}
 	columnInfo := make([]string, len(table.columnInfo))
@@ -425,7 +425,6 @@ func (table *Table) Update() {
 func (table *Table) Delete() {
 	defer table.wg.Done()
 	if table.pgConfig.DeleteBatchSize <= 0 {
-		log.Println("delete operation is disabled")
 		return
 	}
 	columnInfo := make([]string, len(table.columnInfo))
@@ -519,7 +518,6 @@ func (table *Table) Delete() {
 func (table *Table) Select() {
 	defer table.wg.Done()
 	if table.pgConfig.InsertBatchSize <= 0 {
-		log.Println("select operation is disabled")
 		return
 	}
 	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)

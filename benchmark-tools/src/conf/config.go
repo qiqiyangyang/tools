@@ -6,6 +6,11 @@ import (
 	"time"
 )
 
+const (
+	MinBatchSize = 1
+	MaxBatchSize = 128
+)
+
 type Config struct {
 	PostgresqlConfig *PgConfig
 }
@@ -36,6 +41,18 @@ func NewConfig(path string) (*Config, error) {
 	config := &Config{}
 	if err := json.Unmarshal(data, config); err != nil {
 		return nil, err
+	}
+	if config.PostgresqlConfig.InsertBatchSize < MinBatchSize {
+		config.PostgresqlConfig.InsertBatchSize = MinBatchSize
+	}
+	if config.PostgresqlConfig.DeleteBatchSize > MaxBatchSize {
+		config.PostgresqlConfig.DeleteBatchSize = MaxBatchSize
+	}
+	if config.PostgresqlConfig.UpdateBatchSize > MaxBatchSize {
+		config.PostgresqlConfig.UpdateBatchSize = MaxBatchSize
+	}
+	if config.PostgresqlConfig.QueryBatchSize > MaxBatchSize {
+		config.PostgresqlConfig.QueryBatchSize = MaxBatchSize
 	}
 	return config, err
 }
