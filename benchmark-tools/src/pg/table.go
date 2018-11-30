@@ -509,7 +509,6 @@ func (table *Table) Delete() {
 		columnInfo[index] = col.Name
 	}
 	originSelectStmt := fmt.Sprintf(QueryTableStmtFmt, strings.Join(columnInfo, ","), table.pgConfig.TargetTable, table.pgConfig.DeleteBatchSize)
-	log.Debugln(originSelectStmt)
 	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
 	defer ticker.Stop()
 	for {
