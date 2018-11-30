@@ -268,6 +268,9 @@ func (table *Table) createPrepareStateForInsert() string {
 	return strings.Replace(sqlStmt, "?", strings.Join(tcolumns, ","), -1)
 }
 func (table *Table) Insert(prepareSqlStmt string) {
+	if table.pgConfig.InsertBatchSize <= 0 {
+		return
+	}
 	defer table.wg.Done()
 	var sbuf bytes.Buffer
 	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
@@ -402,9 +405,6 @@ func (table *Table) Update() {
 		case <-table.stop:
 			return
 		case <-ticker.C:
-			if err := table.conn.Ping(); err != nil {
-				return
-			}
 			start := time.Now()
 			rows, err := table.conn.Query(originSelectStmt)
 			if err == nil {
@@ -488,7 +488,7 @@ func (table *Table) ValidMeta() bool {
 		}
 		for index := 0; index < len(cols); index++ {
 			if !table.columnInfo[index].Compare(cols[index]) {
-				fmt.Println("target table not match!")
+				log.Debugf("target table not match!")
 				return false
 			}
 		}
@@ -509,6 +509,7 @@ func (table *Table) Delete() {
 		columnInfo[index] = col.Name
 	}
 	originSelectStmt := fmt.Sprintf(QueryTableStmtFmt, strings.Join(columnInfo, ","), table.pgConfig.TargetTable, table.pgConfig.DeleteBatchSize)
+	log.Debugln(originSelectStmt)
 	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
 	defer ticker.Stop()
 	for {
@@ -519,9 +520,10 @@ func (table *Table) Delete() {
 			start := time.Now()
 			rows, err := table.conn.Query(originSelectStmt)
 			if err != nil {
-				log.Debugf("%s:%v\n", "select", err)
+				log.Debugf("%s:%v:\n", "select", err)
 				continue
 			}
+
 			if err == nil {
 				atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
 				atomic.AddUint64(&table.operationCounter.SelectCount, 1)

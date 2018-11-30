@@ -10,10 +10,10 @@
         "TargetTable": "test",
         "InsertBatchSize":0,         
         "QueryBatchSize":0,     
-        "DeleteBatchSize":0,        
+        "DeleteBatchSize":1,        
         "UpdateBatchSize" :0,
         "TargetTableFiledList": "id int,name varchar(64),info char(128),start_time date,end_time timestamp",
-        "MaxConnections": 40,
+        "MaxConnections": 1,
         "TimeIntervalMilliSecond":100
     }
 }

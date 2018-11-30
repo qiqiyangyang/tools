@@ -8,7 +8,7 @@ import (
 
 const (
 	MinBatchSize = 1
-	MaxBatchSize = 128
+	MaxBatchSize = 256
 )
 
 type Config struct {
@@ -42,8 +42,8 @@ func NewConfig(path string) (*Config, error) {
 	if err := json.Unmarshal(data, config); err != nil {
 		return nil, err
 	}
-	if config.PostgresqlConfig.InsertBatchSize > MinBatchSize {
-		config.PostgresqlConfig.InsertBatchSize = MinBatchSize
+	if config.PostgresqlConfig.InsertBatchSize > MaxBatchSize {
+		config.PostgresqlConfig.InsertBatchSize = MaxBatchSize
 	}
 	if config.PostgresqlConfig.DeleteBatchSize > MaxBatchSize {
 		config.PostgresqlConfig.DeleteBatchSize = MaxBatchSize
