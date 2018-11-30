@@ -8,10 +8,10 @@
             "DbName": "demo"
         },
         "TargetTable": "test",
-        "InsertBatchSize":16,         
-        "QueryBatchSize":16,     
+        "InsertBatchSize":0,         
+        "QueryBatchSize":0,     
         "DeleteBatchSize":0,        
-        "UpdateBatchSize" :8,
+        "UpdateBatchSize" :0,
         "TargetTableFiledList": "id int,name varchar(64),info char(128),start_time date,end_time timestamp",
         "MaxConnections": 40,
         "TimeIntervalMilliSecond":100

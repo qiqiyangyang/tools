@@ -64,6 +64,28 @@ func main() {
 	if *verbose {
 		log.SetLevel(log.DebugLevel)
 	}
+	var operationCount int
+	if config.PostgresqlConfig.DeleteBatchSize == 0 {
+		operationCount++
+		fmt.Println("disable delete operation!")
+
+	}
+	if config.PostgresqlConfig.UpdateBatchSize == 0 {
+		operationCount++
+		fmt.Println("disable update operation!")
+	}
+	if config.PostgresqlConfig.QueryBatchSize == 0 {
+		operationCount++
+		fmt.Println("disable select operation!")
+	}
+	if config.PostgresqlConfig.InsertBatchSize == 0 {
+		operationCount++
+		fmt.Println("disable select operation!")
+	}
+	if operationCount == common.OperationCount {
+		log.Errorln("can't disable all operation")
+		return
+	}
 	operationCounter := &common.OperationCounter{}
 	tables := make([]*pg.Table, config.PostgresqlConfig.MaxConnections)
 	wg := &sync.WaitGroup{}

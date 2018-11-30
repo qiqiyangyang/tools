@@ -42,7 +42,7 @@ func NewConfig(path string) (*Config, error) {
 	if err := json.Unmarshal(data, config); err != nil {
 		return nil, err
 	}
-	if config.PostgresqlConfig.InsertBatchSize < MinBatchSize {
+	if config.PostgresqlConfig.InsertBatchSize > MinBatchSize {
 		config.PostgresqlConfig.InsertBatchSize = MinBatchSize
 	}
 	if config.PostgresqlConfig.DeleteBatchSize > MaxBatchSize {

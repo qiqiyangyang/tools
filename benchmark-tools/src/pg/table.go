@@ -18,8 +18,7 @@ import (
 type TypeIndex int
 
 const (
-	MaxTextLen   = 1024
-
+	MaxTextLen = 1024
 )
 const (
 	IntegerTypeIndex TypeIndex = iota
@@ -86,6 +85,61 @@ type Table struct {
 	operationCounter *common.OperationCounter
 }
 
+func initMeta(conn common.Connection, tableName string) ([]*Column, error) {
+	metaStmt := strings.Replace(SelectMetaPrepareStmtFmt, "?", tableName, -1)
+	rows, err := conn.Query(metaStmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	metas := make([]*Column, 0)
+	var buf bytes.Buffer
+	for rows.Next() {
+		var name string
+		var ctype string
+		var clen sql.NullInt64
+		var isserial string
+		err = rows.Scan(&tableName, &name, &ctype, &clen, &isserial)
+		if err != nil {
+			return nil, err
+		}
+		types := strings.SplitN(ctype, " ", -1)
+		for _, v := range types {
+			buf.WriteString(strings.ToLower(v))
+		}
+		col := &Column{Name: name}
+		if strings.Contains(buf.String(), PgDataTypes[TimeStampTypeIndex]) {
+			col.Type = PgDataTypes[TimeStampTypeIndex]
+		} else if strings.Contains(buf.String(), PgDataTypes[CharacterTypeIndex]) {
+			col.Type = PgDataTypes[CharacterTypeIndex]
+		} else {
+			col.Type = buf.String()
+		}
+		if col.Type == PgDataTypes[TextTypeIndex] {
+			col.Len = uint32(MaxTextLen)
+		} else {
+			col.Len = uint32(clen.Int64)
+		}
+		buf.Reset()
+		if strings.Contains(strings.ToLower(isserial), SerialKeyWord) {
+			col.IsSerial = true
+
+		} else {
+			col.IsSerial = false
+		}
+		metas = append(metas, col)
+	}
+	return metas, nil
+}
+func (column *Column) Compare(c *Column) bool {
+	if !(column.IsSerial && c.IsSerial) || column.Len != c.Len {
+		return false
+	}
+	if column.Name != c.Name || column.Type != c.Name {
+		return false
+	}
+	return true
+}
 func NewTable(config *conf.PgConfig, operationCounter *common.OperationCounter, mainWg *sync.WaitGroup) (*Table, error) {
 
 	conn, err := NewPgConnection(config.ServerConfig)
@@ -176,6 +230,7 @@ func NewTable(config *conf.PgConfig, operationCounter *common.OperationCounter, 
 	table.wg = &sync.WaitGroup{}
 	return table, nil
 }
+
 func (table *Table) Run(done chan struct{}) {
 
 	table.wg.Add(common.OperationCount)
@@ -331,6 +386,9 @@ func (table *Table) Update() {
 	if table.pgConfig.UpdateBatchSize <= 0 {
 		return
 	}
+	if !table.ValidMeta() {
+		return
+	}
 	columnInfo := make([]string, len(table.columnInfo))
 
 	for index, col := range table.columnInfo {
@@ -421,10 +479,28 @@ func (table *Table) Update() {
 	}
 
 }
-
+func (table *Table) ValidMeta() bool {
+	if table.pgConfig.InsertBatchSize == 0 {
+		cols, err := initMeta(table.conn, table.pgConfig.TargetTable)
+		if err != nil {
+			log.Debugln(err)
+			return false
+		}
+		for index := 0; index < len(cols); index++ {
+			if !table.columnInfo[index].Compare(cols[index]) {
+				fmt.Println("target table not match!")
+				return false
+			}
+		}
+	}
+	return true
+}
 func (table *Table) Delete() {
 	defer table.wg.Done()
 	if table.pgConfig.DeleteBatchSize <= 0 {
+		return
+	}
+	if !table.ValidMeta() {
 		return
 	}
 	columnInfo := make([]string, len(table.columnInfo))
