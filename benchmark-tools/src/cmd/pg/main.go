@@ -12,10 +12,13 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 var (
 	configPath = flag.String("config", "./conf.json", "config for benchmark tools")
+	verbose    = flag.Bool("verbose", false, "verbose output")
 )
 
 const (
@@ -58,7 +61,9 @@ func main() {
 	if err = Init(config, pgCon); err != nil {
 		panic(err)
 	}
-
+	if *verbose {
+		log.SetLevel(log.DebugLevel)
+	}
 	operationCounter := &common.OperationCounter{}
 	tables := make([]*pg.Table, config.PostgresqlConfig.MaxConnections)
 	wg := &sync.WaitGroup{}
@@ -79,7 +84,7 @@ func main() {
 	}
 	ticker := time.NewTicker(time.Second * 1)
 	defer ticker.Stop()
-	defer fmt.Println("..exit pg benchamrk...")
+	defer log.Infof("received stop signal ")
 	defer wg.Wait()
 	for {
 		select {

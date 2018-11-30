@@ -281,7 +281,7 @@ func (table *Table) Insert(prepareSqlStmt string) {
 			_, err := table.conn.Exec(sbuf.String())
 			sbuf.Reset()
 			if err != nil {
-				log.Errorf("%s:%v\n", "insert", err)
+				log.Debugf("%s:%v\n", "insert", err)
 				continue
 			}
 			atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
@@ -366,7 +366,7 @@ func (table *Table) Update() {
 				for rows.Next() {
 					err = rows.Scan(selectVal[index]...)
 					if err != nil {
-						log.Errorf("%s:%v\n", "update", err)
+						log.Debugf("%s:%v\n", "update", err)
 						continue
 					}
 					index = index + 1
@@ -409,7 +409,7 @@ func (table *Table) Update() {
 					start := time.Now()
 					_, err := table.conn.Exec(execStmt)
 					if err != nil {
-						log.Errorf("%s:%v\n", "update", err)
+						log.Debugf("%s:%v\n", "update", err)
 						continue
 					}
 					atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
@@ -444,7 +444,7 @@ func (table *Table) Delete() {
 			start := time.Now()
 			rows, err := table.conn.Query(originSelectStmt)
 			if err != nil {
-				log.Errorf("%s:%v\n", "select", err)
+				log.Debugf("%s:%v\n", "select", err)
 				continue
 			}
 			if err == nil {
@@ -504,7 +504,7 @@ func (table *Table) Delete() {
 					start := time.Now()
 					_, err := table.conn.Exec(execStmt)
 					if err != nil {
-						log.Errorf("%s:%v\n", "delete", err)
+						log.Debugf("%s:%v\n", "delete", err)
 						continue
 					}
 					atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
@@ -538,7 +538,7 @@ func (table *Table) Select() {
 						start := time.Now()
 						rows, err := table.conn.Query(originSelectStmt)
 						if err != nil {
-							log.Errorf("%s:%v\n", "select", err)
+							log.Debugf("%s:%v\n", "select", err)
 							continue
 						}
 						rows.Close()
