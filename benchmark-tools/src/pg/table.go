@@ -234,6 +234,7 @@ func NewTable(config *conf.PgConfig, operationCounter *common.OperationCounter, 
 func (table *Table) Run(done chan struct{}) {
 
 	table.wg.Add(common.OperationCount)
+	defer table.conn.Close()
 	defer table.wg.Wait()
 	defer table.mainWg.Done()
 	createStmt := table.createPrepareStateForInsert()
@@ -242,7 +243,6 @@ func (table *Table) Run(done chan struct{}) {
 	go table.Update()
 	go table.Delete()
 	go table.Select()
-	defer table.conn.Close()
 	for {
 		select {
 		case <-done:
