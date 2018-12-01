@@ -29,7 +29,7 @@ type PgConfig struct {
 	DeleteBatchSize         int
 	UpdateBatchSize         int
 	TargetTableFiledList    string
-	MaxConnections          int
+	MaxThreads              int
 	TimeIntervalMilliSecond time.Duration
 }
 

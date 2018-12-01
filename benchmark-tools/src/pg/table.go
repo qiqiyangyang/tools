@@ -282,45 +282,20 @@ func (table *Table) Insert() {
 				}
 			}
 			start := time.Now()
-			_, err := conn.Exec(sbuf.String())
+			results, err := conn.Exec(sbuf.String())
 			sbuf.Reset()
 			if err != nil {
 				log.Debugf("%s:%v\n", "insert", err)
 				continue
 			}
-			table.operationCounter.AddDuration((uint64(time.Since(start).Nanoseconds() / 1000000)))
-			table.operationCounter.AddInsertCount(uint64(table.pgConfig.InsertBatchSize))
+			affects, _ := results.RowsAffected()
+			table.operationCounter.AddDuration((int64(time.Since(start).Nanoseconds() / 1000000)))
+			table.operationCounter.AddInsertCount(affects)
+			table.operationCounter.AddCount(1)
 		}
 	}
 }
 
-func (table *Table) typeConvertion(colType string) interface{} {
-	var v interface{}
-	switch colType {
-	case PgDataTypes[IntegerTypeIndex]:
-		v = new(int32)
-		break
-	case PgDataTypes[BigIntTypeIndex]:
-		v = new(int64)
-		break
-	case PgDataTypes[SmallIntTypeIndex]:
-		v = new(int16)
-		break
-	case PgDataTypes[CharacterTypeIndex]:
-		v = new(string)
-		break
-	case PgDataTypes[TextTypeIndex]:
-		v = new(string)
-		break
-	case PgDataTypes[TimeStampTypeIndex]:
-		v = new(time.Time)
-		break
-	case PgDataTypes[DateTypeIndex]:
-		v = new(time.Time)
-		break
-	}
-	return v
-}
 func (table *Table) Update() {
 	defer table.wg.Done()
 	if table.pgConfig.UpdateBatchSize == 0 {
@@ -359,13 +334,15 @@ func (table *Table) Update() {
 					st = strings.Replace(st, "?", table.initColumnValue(table.columnInfo[condIndex], false), -1)
 				}
 				start := time.Now()
-				_, err := conn.Query(st)
+				results, err := conn.Exec(st)
 				if err != nil {
 					log.Debugln(err, st)
 					continue
 				}
-				table.operationCounter.AddUpdateCount(1)
-				table.operationCounter.AddDuration(uint64(time.Since(start).Nanoseconds() / 1000000))
+				affects, _ := results.RowsAffected()
+				table.operationCounter.AddDuration((int64(time.Since(start).Nanoseconds() / 1000000)))
+				table.operationCounter.AddUpdateCount(affects)
+				table.operationCounter.AddCount(1)
 			}
 		}
 	}
@@ -421,13 +398,16 @@ func (table *Table) Delete() {
 					st = strings.Replace(st, "?", table.initColumnValue(table.columnInfo[condIndex], true), -1)
 				}
 				start := time.Now()
-				_, err := conn.Query(st)
+				results, err := conn.Exec(st)
 				if err != nil {
 					log.Debugf("%s:%v:\n", "select", err)
 					continue
 				}
-				table.operationCounter.AddDeleteCount(1)
-				table.operationCounter.AddDuration(uint64(time.Since(start).Nanoseconds() / 1000000))
+				affects, _ := results.RowsAffected()
+				table.operationCounter.AddDuration((int64(time.Since(start).Nanoseconds() / 1000000)))
+				table.operationCounter.AddDeleteCount(affects)
+				table.operationCounter.AddCount(1)
+
 			}
 		}
 	}
@@ -465,13 +445,15 @@ func (table *Table) Select() {
 					st = strings.Replace(st, "?", table.initColumnValue(table.columnInfo[condIndex], true), -1)
 				}
 				start := time.Now()
-				_, err := conn.Query(st)
+				results, err := conn.Exec(st)
 				if err != nil {
 					log.Debugf("%s:%v:\n", "select", err)
 					continue
 				}
-				table.operationCounter.AddSelectCount(1)
-				table.operationCounter.AddDuration(uint64(time.Since(start).Nanoseconds() / 1000000))
+				affects, _ := results.RowsAffected()
+				table.operationCounter.AddDuration((int64(time.Since(start).Nanoseconds() / 1000000)))
+				table.operationCounter.AddSelectCount(affects)
+				table.operationCounter.AddCount(1)
 			}
 		default:
 		}
