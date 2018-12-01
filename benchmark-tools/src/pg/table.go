@@ -68,7 +68,6 @@ type Column struct {
 
 type Table struct {
 	columnInfo       []*Column
-	conn             common.Connection
 	pgConfig         *conf.PgConfig
 	mtx              sync.Mutex
 	serialColNum     int
@@ -162,19 +161,14 @@ func (table *Table) initColumnValue(col *Column, b bool) string {
 	return value
 
 }
-func (table *Table) initSelectStmt() []string {
-	batchStmt := make([]string, 0)
-	for i := 0; i < len(table.columnInfo); i++ {
 
-	}
-	return batchStmt
-}
 func NewTable(config *conf.PgConfig, operationCounter *metric.OperationCounter, mainWg *sync.WaitGroup) (*Table, error) {
 
 	conn, err := NewPgConnection(config.ServerConfig)
 	if err != nil {
 		return nil, err
 	}
+	defer conn.Close()
 	if config.DeleteBatchSize > common.MaxBatchSize {
 		log.Printf("convert config.MaxBatchSize %d to %d\n", config.DeleteBatchSize, common.MaxBatchSize)
 		config.DeleteBatchSize = common.MaxBatchSize
@@ -206,7 +200,6 @@ func NewTable(config *conf.PgConfig, operationCounter *metric.OperationCounter, 
 	}
 	table := &Table{
 		columnInfo:       make([]*Column, 0),
-		conn:             conn,
 		pgConfig:         config,
 		mainWg:           mainWg,
 		operationCounter: operationCounter,
@@ -225,7 +218,6 @@ func NewTable(config *conf.PgConfig, operationCounter *metric.OperationCounter, 
 func (table *Table) Run(done chan struct{}) {
 
 	table.wg.Add(common.OperationCount)
-	defer table.conn.Close()
 	defer table.wg.Wait()
 	defer table.mainWg.Done()
 	table.stop = make(chan struct{}, common.OperationCount)
@@ -261,6 +253,12 @@ func (table *Table) Insert() {
 	if table.pgConfig.InsertBatchSize <= 0 {
 		return
 	}
+	conn, err := NewPgConnection(table.pgConfig.ServerConfig)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+	defer conn.Close()
 	createStmt := table.createInsertPrepareStmt()
 	defer table.wg.Done()
 	var sbuf bytes.Buffer
@@ -284,7 +282,7 @@ func (table *Table) Insert() {
 				}
 			}
 			start := time.Now()
-			_, err := table.conn.Exec(sbuf.String())
+			_, err := conn.Exec(sbuf.String())
 			sbuf.Reset()
 			if err != nil {
 				log.Debugf("%s:%v\n", "insert", err)
@@ -293,7 +291,6 @@ func (table *Table) Insert() {
 			table.operationCounter.AddDuration((uint64(time.Since(start).Nanoseconds() / 1000000)))
 			table.operationCounter.AddInsertCount(uint64(table.pgConfig.InsertBatchSize))
 		}
-
 	}
 }
 
@@ -329,7 +326,13 @@ func (table *Table) Update() {
 	if table.pgConfig.UpdateBatchSize == 0 {
 		return
 	}
-	if !table.validMeta() {
+	conn, err := NewPgConnection(table.pgConfig.ServerConfig)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+	defer conn.Close()
+	if !table.validMeta(conn) {
 		return
 	}
 	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
@@ -356,7 +359,7 @@ func (table *Table) Update() {
 					st = strings.Replace(st, "?", table.initColumnValue(table.columnInfo[condIndex], false), -1)
 				}
 				start := time.Now()
-				_, err := table.conn.Query(st)
+				_, err := conn.Query(st)
 				if err != nil {
 					log.Debugln(err, st)
 					continue
@@ -368,9 +371,9 @@ func (table *Table) Update() {
 	}
 
 }
-func (table *Table) validMeta() bool {
+func (table *Table) validMeta(conn common.Connection) bool {
 	if table.pgConfig.InsertBatchSize == 0 {
-		cols, err := selectColumnInfo(table.conn, table.pgConfig.TargetTable)
+		cols, err := selectColumnInfo(conn, table.pgConfig.TargetTable)
 		if err != nil {
 			log.Debugln(err)
 			return false
@@ -389,7 +392,13 @@ func (table *Table) Delete() {
 	if table.pgConfig.DeleteBatchSize <= 0 {
 		return
 	}
-	if !table.validMeta() {
+	conn, err := NewPgConnection(table.pgConfig.ServerConfig)
+	if err != nil {
+		log.Debugln(err)
+		return
+	}
+	defer conn.Close()
+	if !table.validMeta(conn) {
 		return
 	}
 	//	DeleteTableStmtFmt       = "delete  from %s where %s = ?"
@@ -412,12 +421,11 @@ func (table *Table) Delete() {
 					st = strings.Replace(st, "?", table.initColumnValue(table.columnInfo[condIndex], true), -1)
 				}
 				start := time.Now()
-				_, err := table.conn.Query(st)
+				_, err := conn.Query(st)
 				if err != nil {
 					log.Debugf("%s:%v:\n", "select", err)
 					continue
 				}
-
 				table.operationCounter.AddDeleteCount(1)
 				table.operationCounter.AddDuration(uint64(time.Since(start).Nanoseconds() / 1000000))
 			}
@@ -429,12 +437,15 @@ func (table *Table) Select() {
 	if table.pgConfig.QueryBatchSize <= 0 {
 		return
 	}
-	if !table.validMeta() {
+	conn, err := NewPgConnection(table.pgConfig.ServerConfig)
+	if err != nil {
+		log.Debugln(err)
 		return
 	}
-
-	// 	SelectTableStmtFmt       = "select * from %s where %s = ?"
-
+	defer conn.Close()
+	if !table.validMeta(conn) {
+		return
+	}
 	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
 	defer ticker.Stop()
 	for {
@@ -454,7 +465,7 @@ func (table *Table) Select() {
 					st = strings.Replace(st, "?", table.initColumnValue(table.columnInfo[condIndex], true), -1)
 				}
 				start := time.Now()
-				_, err := table.conn.Query(st)
+				_, err := conn.Query(st)
 				if err != nil {
 					log.Debugf("%s:%v:\n", "select", err)
 					continue

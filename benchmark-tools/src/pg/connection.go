@@ -33,19 +33,6 @@ func (pgConnection *PgConnection) Exec(s string) (sql.Result, error) {
 	}
 	return rs, nil
 }
-func (pgConnection *PgConnection) Ping() error {
-	return pgConnection.conn.Ping()
-}
-
-//    stmt, err := db.Prepare("INSERT INTO userinfo(username,departname,created) VALUES($1,$2,$3)")
-func (pgPgConnection *PgConnection) ExecPrepareStmt(sqlStmt string, values ...interface{}) (sql.Result, error) {
-	stmt, err := pgPgConnection.conn.Prepare(sqlStmt)
-	if err != nil {
-		return nil, err
-	}
-	res, err := stmt.Exec(values...)
-	return res, err
-}
 
 func (pgConnection *PgConnection) Query(sqlStmt string) (*sql.Rows, error) {
 	stmt, err := pgConnection.conn.Prepare(sqlStmt)
