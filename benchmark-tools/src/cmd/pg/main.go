@@ -74,21 +74,21 @@ func main() {
 	}
 
 	operationCounter := &metric.OperationCounter{}
-	tables := make([]*pg.Table, config.PostgresqlConfig.MaxConnections)
+	tables := make([]*pg.Table, config.PostgresqlConfig.MaxThreads)
 	wg := &sync.WaitGroup{}
-	wg.Add(config.PostgresqlConfig.MaxConnections)
-	for i := 0; i < config.PostgresqlConfig.MaxConnections; i++ {
+	wg.Add(config.PostgresqlConfig.MaxThreads)
+	for i := 0; i < config.PostgresqlConfig.MaxThreads; i++ {
 		table, err := pg.NewTable(config.PostgresqlConfig, operationCounter, wg)
 		if err != nil {
 			panic(err)
 		}
 		tables[i] = table
 	}
-	stop := make(chan struct{}, config.PostgresqlConfig.MaxConnections)
+	stop := make(chan struct{}, config.PostgresqlConfig.MaxThreads)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
-	for i := 0; i < config.PostgresqlConfig.MaxConnections; i++ {
+	for i := 0; i < config.PostgresqlConfig.MaxThreads; i++ {
 		go tables[i].Run(stop)
 	}
 	ticker := time.NewTicker(time.Second * 1)
@@ -98,7 +98,7 @@ func main() {
 	for {
 		select {
 		case <-sig:
-			for i := 0; i < config.PostgresqlConfig.MaxConnections; i++ {
+			for i := 0; i < config.PostgresqlConfig.MaxThreads; i++ {
 				stop <- struct{}{}
 			}
 			return
