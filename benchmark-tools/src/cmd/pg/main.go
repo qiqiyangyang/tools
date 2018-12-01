@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "./conf.json", "config for benchmark tools")
-	verbose    = flag.Bool("verbose", false, "verbose output")
+	configPath  = flag.String("config", "./conf.json", "config for benchmark tools")
+	verbose     = flag.Bool("verbose", false, "verbose output")
+	forceCreate = flag.Bool("force", false, "force create table")
 )
 
 const (
@@ -57,35 +58,21 @@ func main() {
 		panic(err)
 	}
 	defer pgCon.Close()
-
-	if err = Init(config, pgCon); err != nil {
-		panic(err)
-	}
 	if *verbose {
 		log.SetLevel(log.DebugLevel)
 	}
+	if *forceCreate {
+		if err = Init(config, pgCon); err != nil {
+			panic(err)
+		}
+	}
 	var operationCount int
-	if config.PostgresqlConfig.DeleteBatchSize == 0 {
-		operationCount++
-		fmt.Println("disable delete operation!")
-
-	}
-	if config.PostgresqlConfig.UpdateBatchSize == 0 {
-		operationCount++
-		fmt.Println("disable update operation!")
-	}
-	if config.PostgresqlConfig.QueryBatchSize == 0 {
-		operationCount++
-		fmt.Println("disable select operation!")
-	}
-	if config.PostgresqlConfig.InsertBatchSize == 0 {
-		operationCount++
-		fmt.Println("disable select operation!")
-	}
-	if operationCount == common.OperationCount {
+	fmt.Println(config.PostgresqlConfig)
+	if config.PostgresqlConfig.DeleteBatchSize == 0 && config.PostgresqlConfig.UpdateBatchSize == 0 && config.PostgresqlConfig.QueryBatchSize == 0 && config.PostgresqlConfig.InsertBatchSize == 0 {
 		log.Errorln("can't disable all operation")
 		return
 	}
+
 	operationCounter := &common.OperationCounter{}
 	tables := make([]*pg.Table, config.PostgresqlConfig.MaxConnections)
 	wg := &sync.WaitGroup{}
@@ -117,7 +104,7 @@ func main() {
 			return
 		case <-ticker.C:
 			seconds := float64(operationCounter.Duration) / 1000
-			fmt.Printf(" %-2s Size:%-8s  QPS:%-8f  Insert:%-8d  Delete:%-8d  Select:%-8d  Update:%-8d\n", config.PostgresqlConfig.TargetTable, GetTableSize(config, pgCon), float64(operationCounter.Count)/seconds, operationCounter.InsertCount, operationCounter.DeleteCount, operationCounter.SelectCount, operationCounter.UpdateCount)
+			fmt.Printf(" %-2s Size:%-8s  QPS:%-8f  Insert[%d]:%-8d  Delete[%d]:%-8d  Select[%d]:%-8d  Update[%d]:%-8d\n", config.PostgresqlConfig.TargetTable, GetTableSize(config, pgCon), float64(operationCounter.Count)/seconds, config.PostgresqlConfig.InsertBatchSize, operationCounter.InsertCount, config.PostgresqlConfig.DeleteBatchSize, operationCounter.DeleteCount, config.PostgresqlConfig.QueryBatchSize, operationCounter.SelectCount, config.PostgresqlConfig.UpdateBatchSize, operationCounter.UpdateCount)
 		}
 	}
 	defer pgCon.Close()

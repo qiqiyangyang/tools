@@ -1,19 +1,19 @@
 {
     "PostgresqlConfig": {
         "ServerConfig": {
-            "Host": "127.0.0.1",
+            "Host": "172.20.5.23",
             "Port": 5432,
             "User": "admin",
             "PassWord": "test",
             "DbName": "demo"
         },
         "TargetTable": "test",
-        "InsertBatchSize":16,         
-        "QueryBatchSize":0,     
-        "DeleteBatchSize":0,        
-        "UpdateBatchSize" :0,
+        "InsertBatchSize": 0,
+        "QueryBatchSize": 16,
+        "DeleteBatchSize": 0,
+        "UpdateBatchSize": 0,
         "TargetTableFiledList": "id int,name varchar(64),info char(128),start_time date,end_time timestamp",
         "MaxConnections": 100,
-        "TimeIntervalMilliSecond":100
+        "TimeIntervalMilliSecond": 100
     }
 }

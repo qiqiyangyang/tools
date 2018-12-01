@@ -33,13 +33,13 @@ const (
 	SerialKeyWord = "nextval"
 )
 const (
-	QueryTableStmtFmt   = "select %s from %s  ORDER BY random() limit %d"
-	PreDropTableStmtFmt = "drop table if exists  ?"
-	CreateTableStmtFmt  = "create table if not exists  %s(?)"
-	DeleteTableStmtFmt  = "delete  from %s where %s = ?"
-	UpdateTableStmtFmt  = "update %s set ? where %s = %d"
-	SelectTableStmtFmt  = "select ? from %s where %s = %s"
-
+	QueryTableStmtFmt        = "select %s from %s  ORDER BY random() limit %d"
+	PreDropTableStmtFmt      = "drop table if exists  ?"
+	CreateTableStmtFmt       = "create table if not exists  %s(?)"
+	DeleteTableStmtFmt       = "delete  from %s where %s = ?"
+	UpdateTableStmtFmt       = "update %s set ? where %s = %d"
+	SelectTableStmtFmt       = "select ? from %s where %s = %s"
+	FullSelectTableFmt       = "select * from %s  where ?"
 	InsertTableStmtFmt       = "insert into %s(?)values"
 	SelectMetaPrepareStmtFmt = "select a.table_name, a.column_name,a.data_type,a.character_maximum_length,COALESCE(a.column_default,'nil') from information_schema.columns a WHERE a.table_schema = 'public' and a.table_name = '?'"
 )
@@ -591,12 +591,16 @@ func (table *Table) Delete() {
 		}
 	}
 }
-
 func (table *Table) Select() {
 	defer table.wg.Done()
-	if table.pgConfig.InsertBatchSize <= 0 {
+	if table.pgConfig.QueryBatchSize <= 0 {
 		return
 	}
+	fmt.Println("......start select......")
+
+	var stmt []string
+	fullStmt := fmt.Sprintf(FullSelectTableFmt, table.pgConfig.TargetTable)
+
 	ticker := time.NewTicker(table.pgConfig.TimeIntervalMilliSecond * time.Microsecond)
 	defer ticker.Stop()
 	for {
@@ -623,6 +627,60 @@ func (table *Table) Select() {
 					}
 				}
 			}
+		default:
+		}
+		select {
+		case <-ticker.C:
+			log.Infoln("......ticker......")
+			stmt = make([]string, table.pgConfig.QueryBatchSize)
+			for i := 0; i < table.pgConfig.QueryBatchSize; i++ {
+				n := rand.Int31n(int32(len(table.columnInfo)))
+				col := table.columnInfo[n]
+				if col.IsSerial {
+					realValue := table.operationCounter.Count - uint64(rand.Intn(100))
+					stmt = append(stmt, strings.Replace(fullStmt, "?", fmt.Sprintf("%s =%d", col.Name, realValue), -1))
+				} else {
+					switch col.Type {
+					case PgDataTypes[IntegerTypeIndex]:
+						stmt = append(stmt, strings.Replace(fullStmt, "?", fmt.Sprintf("%s =%d", col.Name, common.GenInt32()), -1))
+						break
+					case PgDataTypes[BigIntTypeIndex]:
+						stmt = append(stmt, strings.Replace(fullStmt, "?", fmt.Sprintf("%s =%d", col.Name, common.GenInt64()), -1))
+						break
+					case PgDataTypes[SmallIntTypeIndex]:
+						stmt = append(stmt, strings.Replace(fullStmt, "?", fmt.Sprintf("%s =%d", col.Name, common.GenInt16()), -1))
+						break
+					case PgDataTypes[CharacterTypeIndex]:
+						stmt = append(stmt, strings.Replace(fullStmt, "?", fmt.Sprintf("%s ='%s'", col.Name, common.GenVarch(uint32(col.Len))), -1))
+						break
+					case PgDataTypes[TextTypeIndex]:
+						stmt = append(stmt, strings.Replace(fullStmt, "?", fmt.Sprintf("%s ='%s'", col.Name, common.GenVarch(uint32(col.Len))), -1))
+						break
+					case PgDataTypes[TimeStampTypeIndex]:
+						duration := time.Duration((rand.Intn(1000) * (-1)))
+						rt := time.Now().Add(time.Millisecond * duration)
+						stmt = append(stmt, strings.Replace(fullStmt, "?", fmt.Sprintf("%s =to_timestamp('%s','%s')", col.Name, rt.Format("2006-01-02 15:04:05.000"), "yyyy-mm-dd hh24:mi:ms"), -1))
+						break
+					case PgDataTypes[DateTypeIndex]:
+						duration := time.Duration((rand.Intn(1000) * (-1)))
+						rt := time.Now().Add(time.Millisecond * duration)
+						stmt = append(stmt, strings.Replace(fullStmt, "?", fmt.Sprintf("%s =to_timestamp('%s','%s')", col.Name, rt.Format("2006-01-02 15:04:05.000"), "yyyy-mm-dd hh24:mi:ms"), -1))
+						break
+					}
+				}
+			}
+			for _, v := range stmt {
+				start := time.Now()
+				_, err := table.conn.Exec(v)
+				if err != nil {
+					log.Debugf("select:%v", err)
+					continue
+				}
+				atomic.AddUint64(&table.operationCounter.Duration, (uint64(time.Since(start).Nanoseconds() / 1000000)))
+				atomic.AddUint64(&table.operationCounter.SelectCount, 1)
+				atomic.AddUint64(&table.operationCounter.Count, 1)
+			}
+		default:
 		}
 	}
 }
