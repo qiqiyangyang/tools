@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	MinBatchSize = 1
-	MaxBatchSize = 256
+	MaxBatchSize       = 256
+	DefaultMilliSecond = time.Duration(10)
 )
 
 type Config struct {
@@ -54,5 +54,9 @@ func NewConfig(path string) (*Config, error) {
 	if config.PostgresqlConfig.QueryBatchSize > MaxBatchSize {
 		config.PostgresqlConfig.QueryBatchSize = MaxBatchSize
 	}
+	if config.PostgresqlConfig.TimeIntervalMilliSecond <= DefaultMilliSecond {
+		config.PostgresqlConfig.TimeIntervalMilliSecond = DefaultMilliSecond
+	}
+
 	return config, err
 }

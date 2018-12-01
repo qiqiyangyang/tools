@@ -14,6 +14,7 @@
         "UpdateBatchSize" :4,
         "TargetTableFiledList": "id int,name varchar(64),info char(128),start_time date,end_time timestamp",
         "MaxConnections": 64,
-        "TimeIntervalMilliSecond":100
+        "TimeIntervalMilliSecond":100,
+        "ForceCreate":true
     }
 }

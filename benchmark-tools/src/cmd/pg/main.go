@@ -5,6 +5,7 @@ import (
 	"conf"
 	"flag"
 	"fmt"
+	"metric"
 	"os"
 	"os/signal"
 	"pg"
@@ -66,14 +67,13 @@ func main() {
 			panic(err)
 		}
 	}
-	var operationCount int
 	fmt.Println(config.PostgresqlConfig)
 	if config.PostgresqlConfig.DeleteBatchSize == 0 && config.PostgresqlConfig.UpdateBatchSize == 0 && config.PostgresqlConfig.QueryBatchSize == 0 && config.PostgresqlConfig.InsertBatchSize == 0 {
 		log.Errorln("can't disable all operation")
 		return
 	}
 
-	operationCounter := &common.OperationCounter{}
+	operationCounter := &metric.OperationCounter{}
 	tables := make([]*pg.Table, config.PostgresqlConfig.MaxConnections)
 	wg := &sync.WaitGroup{}
 	wg.Add(config.PostgresqlConfig.MaxConnections)
